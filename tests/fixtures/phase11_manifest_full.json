@@ -1,0 +1,157 @@
+{
+  "experiment_id": "phase11_golden",
+  "qset_hash": "abc123deadbeef",
+  "strategy": {
+    "strategy_id": "jev-pullback-v1",
+    "top_k": 3,
+    "horizon_sessions": 3,
+    "phases": [0, 1, 2],
+    "cost_scenario": "normal"
+  },
+  "dataset": {
+    "partitions": [
+      {
+        "name": "train",
+        "range": "2016-01-04..2018-12-31",
+        "contamination_status": "potentially_training_contaminated"
+      },
+      {
+        "name": "walk_forward",
+        "range": "2019-01-02..2023-12-29",
+        "contamination_status": "potentially_training_contaminated"
+      },
+      {
+        "name": "sealed",
+        "range": "2024-01-02..2025-12-31",
+        "contamination_status": "sealed_held_out"
+      },
+      {
+        "name": "interim",
+        "range": "2026-01-02..deployment",
+        "contamination_status": "potentially_training_contaminated"
+      },
+      {
+        "name": "forward",
+        "range": "after deployment_timestamp",
+        "contamination_status": "clean_forward"
+      }
+    ]
+  },
+  "features": {
+    "model_a_columns": [
+      "ret_1d", "ret_3d", "ret_5d", "ret_20d", "down_streak",
+      "px_vs_sma20", "px_vs_sma50", "px_vs_sma200", "rsi_3", "rsi_14",
+      "rv_pct_252", "vol_ratio_20", "vix_lag1_pct_252", "spy_ret_5d",
+      "spy_px_vs_sma200", "rel_ret_5d", "xs_rank_ret_5d"
+    ],
+    "jev_feature_columns": [
+      "j_dislocation", "j_downside_E", "j_downside_p3", "j_regime",
+      "j_pullback_p", "j_breakdown_p", "j_sideways_p", "j_setup_conf"
+    ]
+  },
+  "qset": {
+    "qset_version": "qset_v1",
+    "content_hash": "abc123deadbeef",
+    "questions": {
+      "dislocation": {
+        "type": "noul",
+        "instructions": "Is this fund's recent decline more likely a short-lived pullback?"
+      },
+      "downside_risk": {
+        "type": "score",
+        "instructions": "How elevated is the risk of a further large decline?"
+      }
+    }
+  },
+  "equity": [
+    {"date": "2019-01-02", "equity_usd": 100000},
+    {"date": "2019-01-03", "equity_usd": 100500},
+    {"date": "2019-01-04", "equity_usd": 99700},
+    {"date": "2019-01-07", "equity_usd": 101200}
+  ],
+  "monthly_returns": [
+    {"month": "2019-01", "ret_a": 0.01, "ret_b": 0.015},
+    {"month": "2019-02", "ret_a": -0.005, "ret_b": 0.002}
+  ],
+  "trade_pnls": [12.5, -3.0, 8.1, -1.2, 4.4],
+  "baseline_comparison": {
+    "R0_log_loss": 0.71,
+    "A_log_loss": 0.68,
+    "D_log_loss": 0.67
+  },
+  "jev_comparison": {
+    "delta_log_loss_B_minus_A": -0.02,
+    "delta_rank_ic_B_minus_A": 0.03
+  },
+  "calibration": {
+    "mean_predicted": [0.1, 0.3, 0.5, 0.7, 0.9],
+    "frac_positive": [0.12, 0.28, 0.48, 0.66, 0.85]
+  },
+  "placebo": {
+    "P1": {
+      "n": 5,
+      "observed_delta_log_loss_gain": 0.04,
+      "placebo_delta_log_loss_gains": [-0.01, 0.0, 0.02, 0.03, 0.01],
+      "pvalue_log_loss": 0.1667
+    },
+    "P3": {
+      "n": 5,
+      "observed_delta_log_loss_gain": 0.04,
+      "placebo_delta_log_loss_gains": [-0.02, 0.01, 0.0, 0.015, 0.02],
+      "pvalue_log_loss": 0.1667
+    }
+  },
+  "cost_sensitivity": [
+    {"scenario": "optimistic", "delta_sharpe": 0.25},
+    {"scenario": "normal", "delta_sharpe": 0.22},
+    {"scenario": "pessimistic", "delta_sharpe": 0.10},
+    {"scenario": "stress", "delta_sharpe": 0.02}
+  ],
+  "robustness": {
+    "narrative_conclusions": null,
+    "feature_ablation": [{"dropped_feature": "ret_1d", "delta_log_loss_gain": 0.03}],
+    "k_sweep": [{"top_k": 2}, {"top_k": 3}, {"top_k": 4}]
+  },
+  "stats_summary": {
+    "point_estimates": {
+      "delta_log_loss_B_minus_A": -0.02,
+      "delta_rank_ic_B_minus_A": 0.03
+    },
+    "mde": {"mde_dsharpe": 0.4, "mde_dic": 0.4}
+  },
+  "power": {
+    "statement": "Effective independent date-blocks ~ 419; approximate MDE included in stats.",
+    "underpowered": false,
+    "observed_effect": 0.22,
+    "mde": 0.20
+  },
+  "contamination_diagnostics": {
+    "sections": [
+      {"name": "D1 era diagnostic"},
+      {"name": "D2 outcome diagnostic"},
+      {"name": "D5 fine vs coarse"}
+    ]
+  },
+  "acceptance_statuses": {
+    "HISTORICAL_RESEARCH_PASS": {
+      "present": false,
+      "integrity_digest": "",
+      "path": "reports/acceptance/HISTORICAL_ACCEPTANCE.json"
+    },
+    "TINY_LIVE_READY": {"present": false, "integrity_digest": "", "path": ""},
+    "SCALE_READY": {"present": false, "integrity_digest": "", "path": ""}
+  },
+  "gates": {
+    "G1": true,
+    "G2": true,
+    "G3": true,
+    "G4": true,
+    "G5": true,
+    "G6": true,
+    "G7": true,
+    "G8": true,
+    "G9": true,
+    "G10": true
+  },
+  "underpowered": false
+}

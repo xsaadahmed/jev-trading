@@ -1,0 +1,20 @@
+strategy_id: jev-pullback-v1
+eligibility_rule: "adj_close > sma200"
+top_k: 3
+horizon_sessions: 3
+rebalance_every_sessions: 3
+phases: [0, 1, 2]
+acceptance_phase_agg: mean
+logistic_C_grid: [0.01, 0.1, 1.0]
+lightgbm_params:
+  n_estimators: 100
+  max_depth: 3
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_samples: 50
+  deterministic: true
+  n_jobs: 1
+  verbosity: -1
+seed: 42
+entry_lag_sessions: 1

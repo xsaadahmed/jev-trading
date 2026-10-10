@@ -1,0 +1,42 @@
+# Secrets and local env
+.env
+.env.local
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+*.egg
+
+# Project data and registry DB (manifests may be committed separately)
+data/
+registry/*.sqlite
+registry/*.sqlite-*
+
+# Reports generated at runtime (acceptance artifacts may be committed later)
+reports/**
+!reports/acceptance/
+reports/acceptance/**
+!reports/acceptance/.gitkeep
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Live arm token (never commit)
+.live_arm
+KILL_SWITCH

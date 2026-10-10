@@ -1,0 +1,47 @@
+{
+  "qset_version": "qset_v1",
+  "purpose": "research",
+  "questions": {
+    "dislocation": {
+      "type": "noul",
+      "instructions": "Is this fund's recent decline more likely a short-lived pullback that partly reverses within a few trading days than the start of a sustained downtrend?",
+      "criteria": {
+        "true": "The decline is shallow or moderate, the longer-term trend is intact, and market conditions look orderly.",
+        "false": "The decline is deep or widespread, the longer-term trend is damaged, or market conditions show stress."
+      }
+    },
+    "downside_risk": {
+      "type": "score",
+      "instructions": "How elevated is the risk of a further large decline over the next few trading days?",
+      "criteria": ["Very low", "Low", "Normal", "Elevated", "Extreme"]
+    },
+    "regime_supportive": {
+      "type": "noul",
+      "instructions": "Is the broader market environment supportive of buying a short-term pullback in a fund that is in an uptrend?",
+      "criteria": {
+        "true": "The broad market trend is intact and volatility is not extreme.",
+        "false": "The broad market is in a downtrend or volatility is under stress."
+      }
+    },
+    "setup_type_a": {
+      "type": "choice",
+      "instructions": "Which description best fits the recent price behavior?",
+      "criteria": {
+        "pullback_in_uptrend": "A temporary pause or dip inside an intact uptrend.",
+        "trend_breakdown": "The prior uptrend is breaking down into a sustained decline.",
+        "sideways_noise": "Range-bound noise without a clear directional setup.",
+        "extended_rally_pause": "An extended rally pausing after becoming stretched."
+      }
+    },
+    "setup_type_b": {
+      "type": "choice",
+      "instructions": "Which description best fits the recent price behavior?",
+      "criteria": {
+        "extended_rally_pause": "An extended rally pausing after becoming stretched.",
+        "sideways_noise": "Range-bound noise without a clear directional setup.",
+        "trend_breakdown": "The prior uptrend is breaking down into a sustained decline.",
+        "pullback_in_uptrend": "A temporary pause or dip inside an intact uptrend."
+      }
+    }
+  }
+}

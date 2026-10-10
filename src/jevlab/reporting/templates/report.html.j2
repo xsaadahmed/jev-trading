@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>{{ title }}</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    body { font-family: Georgia, "Times New Roman", serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; line-height: 1.45; color: #1a1a1a; }
+    h1, h2, h3 { font-family: "Segoe UI", Helvetica, Arial, sans-serif; }
+    .banner { border: 1px solid #444; padding: 0.75rem 1rem; margin: 1rem 0; background: #f7f7f5; }
+    .warning { border-left: 4px solid #b45309; padding-left: 0.75rem; margin: 0.5rem 0; }
+    table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.95rem; }
+    th, td { border: 1px solid #ccc; padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+    th { background: #f0f0ee; }
+    .missing { color: #666; font-style: italic; }
+    .conclusion { font-size: 1.15rem; font-weight: 600; margin: 1.25rem 0; padding: 1rem; border: 2px solid #222; }
+    code, pre { font-family: Consolas, "Courier New", monospace; font-size: 0.9rem; }
+    pre { overflow-x: auto; background: #f5f5f3; padding: 0.75rem; }
+  </style>
+</head>
+<body>
+  <h1>{{ title }}</h1>
+  <p>Experiment: <code>{{ experiment_id }}</code> · Generated from manifest only (no recomputation).</p>
+
+  <div class="banner">
+    <p><strong>Mandatory (§16.4):</strong> {{ historical_contamination }}</p>
+    <p><strong>Mandatory (§16.4):</strong> {{ live_execution_experiment }}</p>
+    <p>Contamination label: <code>{{ contamination_label }}</code></p>
+  </div>
+
+  {% for section in sections %}
+  <section id="{{ section.id }}">
+    <h2>{{ section.title }}</h2>
+    {% if section.missing %}
+      <p class="missing">{{ section.missing }}</p>
+    {% endif %}
+    {% if section.html %}
+      {{ section.html | safe }}
+    {% endif %}
+  </section>
+  {% endfor %}
+
+  <section id="conclusion">
+    <h2>Final conclusion</h2>
+    <div class="conclusion">{{ conclusion.text }}</div>
+    <p>Verdict kind: <code>{{ conclusion.kind }}</code></p>
+    {% if conclusion.reasons %}
+    <p>Reasons: {{ conclusion.reasons | join(", ") }}</p>
+    {% endif %}
+  </section>
+</body>
+</html>

@@ -1,0 +1,10 @@
+LIVE_TRADING_ENABLED: false
+BROKER_ENV: disabled
+MAX_STRATEGY_CAPITAL_USD: 10.00
+arm_token_ttl_hours: 24.0
+historical_artifact_expiry_days: 180
+tiny_live_artifact_expiry_days: 90
+scale_artifact_expiry_days: 90
+arm_phrase: "I-ACCEPT-REAL-MONEY-RISK-USD-10"
+require_execute_flag: true
+dry_run_default: true

@@ -1,0 +1,29 @@
+cost_scenarios:
+  - name: optimistic
+    cost_bps_per_side: 1.0
+  - name: normal
+    cost_bps_per_side: 2.5
+  - name: pessimistic
+    cost_bps_per_side: 6.0
+  - name: stress
+    cost_bps_per_side: 12.0
+sell_fee_bps: 0.3
+commission_bps: 0.0
+per_symbol_cost_multiplier:
+  SPY: 0.6
+  QQQ: 0.6
+  IWM: 1.0
+  DIA: 0.8
+  XLB: 1.5
+  XLE: 1.5
+  XLF: 1.2
+  XLI: 1.2
+  XLK: 1.0
+  XLP: 1.2
+  XLU: 1.2
+  XLV: 1.2
+  XLY: 1.2
+fill_convention: "adjusted_open_plus_slippage"
+initial_capital_usd: 100000.0
+fractional_shares: true
+cash_interest_dec: 0.0

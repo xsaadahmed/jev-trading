@@ -1,0 +1,12 @@
+max_position_pct: 34.0
+max_gross_exposure_pct: 100.0
+max_new_orders_per_day: 6
+max_daily_loss_pct: 5.0
+max_drawdown_pct: 20.0
+min_live_position_notional_usd: 1.0
+stale_data_halt: true
+max_missing_symbols: 2
+submit_window_start_et: "08:30"
+submit_window_end_et: "09:25"
+kill_switch_file: KILL_SWITCH
+kill_switch_env_var: TRADING_HALT

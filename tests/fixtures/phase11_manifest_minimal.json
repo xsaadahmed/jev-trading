@@ -1,0 +1,5 @@
+{
+  "experiment_id": "phase11_minimal",
+  "gates": {"G4": false},
+  "underpowered": false
+}

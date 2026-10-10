@@ -1,0 +1,20 @@
+route: systemone
+endpoint: "https://api.typesafe.ai/v1/systemone"
+model_id: "jev-1.13.0"
+research_refuse_aliases:
+  - jev-latest
+  - jev-preview
+rate_limit_per_minute: 30.0
+max_retries: 5
+retry_statuses: [429, 500, 502, 503, 529]
+timeout_seconds: 60.0
+connect_timeout_seconds: 10.0
+bucket_edges: [0.05, 0.20, 0.40, 0.60, 0.80, 0.95]
+state_schema_version: "state_v1"
+qset_version: "qset_v1"
+qset_path: config/qset_v1.json
+qset_hash: null
+audit_qset_version: "audit_qset_v1"
+audit_qset_path: config/audit_qset.json
+audit_qset_hash: null
+cache_dir: data/jev_cache

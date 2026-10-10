@@ -1,0 +1,22 @@
+universe_version: "v1"
+symbols:
+  - SPY
+  - QQQ
+  - IWM
+  - DIA
+  - XLB
+  - XLE
+  - XLF
+  - XLI
+  - XLK
+  - XLP
+  - XLU
+  - XLV
+  - XLY
+context_symbols:
+  - SPY
+excluded_notes:
+  - "XLRE excluded: 2015 launch, thin early history"
+  - "XLC excluded: 2018 launch"
+  - "Single stocks excluded: survivorship and earnings-event contamination"
+  - "Leveraged/inverse ETFs excluded"

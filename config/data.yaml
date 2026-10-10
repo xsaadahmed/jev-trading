@@ -1,0 +1,14 @@
+primary_vendor: tiingo
+cross_check_vendors:
+  - alpaca
+  - stooq
+vix_vendor: fred
+vix_series_id: VIXCLS
+universe_file: config/universe.yaml
+start_date: "2015-01-01"
+end_date: null
+raw_dir: data/raw
+processed_dir: data/processed/bars
+external_dir: data/processed/external
+rate_limit_per_hour: 50
+rate_limit_per_day: 1000

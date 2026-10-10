@@ -1,0 +1,23 @@
+{
+  "qset_version": "audit_qset_v1",
+  "purpose": "audit",
+  "questions": {
+    "era_class": {
+      "type": "choice",
+      "instructions": "Which period best describes the market environment implied by this anonymized state?",
+      "criteria": {
+        "early": "An earlier period in the historical sample.",
+        "middle": "A middle period in the historical sample.",
+        "late": "A later period in the historical sample."
+      }
+    },
+    "outcome_outperform": {
+      "type": "noul",
+      "instructions": "Will this fund outperform the broad group of similar funds over the next three trading days?",
+      "criteria": {
+        "true": "The fund is more likely than not to beat the equal-weight peer group over the next three sessions.",
+        "false": "The fund is more likely than not to lag the equal-weight peer group over the next three sessions."
+      }
+    }
+  }
+}
