@@ -21,7 +21,7 @@ from jevlab.backtest.costs import CostModel
 from jevlab.backtest.ledger import run_ledger
 from jevlab.config.models import RiskConfig
 from jevlab.cv.sealed_guard import SealedDataGuard
-from jevlab.cv.walkforward import Fold, make_folds
+from jevlab.cv.walkforward import OOS_END, OOS_START, Fold, make_folds
 from jevlab.evaluation.metrics import compute_economic_metrics
 from jevlab.experiments.manifest import (
     assert_manifest_complete,
@@ -280,11 +280,14 @@ def run_model_set(
                         top_k=top_k,
                         phase=int(phase),
                         apply_risk=True,
+                        enable_drawdown_kill=False,
                     )
                     metrics = compute_economic_metrics(
                         ledger.equity_curve,
                         ledger.trades,
                         initial_capital_usd=initial_capital_usd,
+                        metric_start=OOS_START,
+                        metric_end=OOS_END,
                     ).to_dict()
                     backtest_rows.append(
                         {

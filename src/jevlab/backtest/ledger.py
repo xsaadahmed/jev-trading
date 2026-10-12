@@ -66,6 +66,81 @@ def client_order_id(strategy_id: str, session: date, symbol: str, side: str) -> 
     return f"{strategy_id}-{session:%Y%m%d}-{symbol}-{side}-{digest}"
 
 
+def _mv_of_positions(
+    positions: dict[str, float],
+    day: date,
+    close_px: pd.DataFrame,
+    open_px: pd.DataFrame,
+) -> float:
+    """Mark positions at ``day`` using close, falling back to open."""
+    total = 0.0
+    for sym, qty in positions.items():
+        if qty == 0:
+            continue
+        px: float | None = None
+        if sym in close_px.columns and day in close_px.index:
+            raw = close_px.loc[day, sym]
+            if raw is not None and not (isinstance(raw, float) and np.isnan(float(raw))):
+                px = float(raw)
+        if px is None and sym in open_px.columns and day in open_px.index:
+            raw = open_px.loc[day, sym]
+            if raw is not None and not (isinstance(raw, float) and np.isnan(float(raw))):
+                px = float(raw)
+        if px is not None:
+            total += float(qty) * px
+    return total
+
+
+def capacity_after_pending_exits(
+    *,
+    cash_usd: float,
+    market_value_usd: float,
+    positions: dict[str, float],
+    open_recs: list[Position],
+    pending: list[dict[str, Any]],
+    entry_session_d: date,
+    mark_day: date,
+    close_px: pd.DataFrame,
+    open_px: pd.DataFrame,
+) -> tuple[float, float, dict[str, float]]:
+    """Cash/MV/positions as if exits at ``entry_session_d`` already filled.
+
+    The ledger executes sells before buys on the entry session, so risk and
+    sizing at decision time must not treat capital locked in those exiting
+    cohorts as still committed (MASTER_SPEC entry open t+1 / exit open t+4 with
+    rebalance every 3 sessions overlaps by one session at decision time).
+    """
+    # Prefer scheduled sell orders (one per cohort); do not also add open_recs
+    # or the same exit would be double-counted.
+    releasing: dict[str, float] = {}
+    pending_sell_cohorts: set[str] = set()
+    for order in pending:
+        fill_s = order.get("fill_session")
+        if order.get("side") == "sell" and isinstance(fill_s, date) and fill_s <= entry_session_d:
+            sym = str(order["symbol"])
+            releasing[sym] = releasing.get(sym, 0.0) + float(order["qty"])
+            pending_sell_cohorts.add(str(order["cohort_id"]))
+    for rec in open_recs:
+        if rec.exit_session <= entry_session_d and rec.cohort_id not in pending_sell_cohorts:
+            releasing[rec.symbol] = releasing.get(rec.symbol, 0.0) + float(rec.qty)
+
+    if not releasing:
+        return cash_usd, market_value_usd, dict(positions)
+
+    residual = dict(positions)
+    for sym, qty in releasing.items():
+        left = residual.get(sym, 0.0) - qty
+        if left <= 1e-12:
+            residual.pop(sym, None)
+        else:
+            residual[sym] = left
+
+    released_mv = _mv_of_positions(releasing, mark_day, close_px, open_px)
+    # Cap release to current marked book (numerics / partial marks).
+    released_mv = min(max(released_mv, 0.0), market_value_usd)
+    return cash_usd + released_mv, max(market_value_usd - released_mv, 0.0), residual
+
+
 def _pivot_price(bars: pd.DataFrame, col: str) -> pd.DataFrame:
     frame = bars.copy()
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
@@ -88,11 +163,20 @@ def run_ledger(
     fill_mode: FillMode = "open_t1",
     score_col: str = "score",
     apply_risk: bool = True,
+    enable_drawdown_kill: bool = True,
 ) -> LedgerResult:
     """Run the explicit ledger event loop.
 
     ``scores`` must include symbol, date, score, eligible (and optionally already
     filtered to selected rows — selection is reapplied on rebalance dates).
+
+    Sizing uses ``min(equity, strategy_capital)`` so deployment never exceeds the
+    strategy-capital cap as equity grows (§15.1). Risk checks credit exits that
+    fill at the upcoming entry session (sells execute before buys that morning).
+
+    ``enable_drawdown_kill``: when True (live default), latch and block new buys
+    after ``max_drawdown_pct``. Research evaluation should pass False so G3 can
+    observe path drawdowns up to the pathology bound without truncating the sample.
     """
     cost = require_cost_model(cost)
     if initial_capital_usd <= 0:
@@ -130,20 +214,7 @@ def run_ledger(
     idx_map = session_index_map(sessions)
 
     def mark_value(day: date) -> float:
-        total = 0.0
-        for sym, qty in positions.items():
-            if qty == 0:
-                continue
-            if sym in close_px.columns and day in close_px.index:
-                px = close_px.loc[day, sym]
-            elif sym in open_px.columns and day in open_px.index:
-                px = open_px.loc[day, sym]
-            else:
-                continue
-            if px is None or (isinstance(px, float) and np.isnan(float(px))):
-                continue
-            total += float(qty) * float(px)
-        return total
+        return _mv_of_positions(positions, day, close_px, open_px)
 
     def equity_now(day: date) -> float:
         return cash + mark_value(day)
@@ -259,8 +330,12 @@ def run_ledger(
         for sym, qty in positions.items():
             pos_rows.append({"date": day, "symbol": sym, "qty": qty})
 
-        # Drawdown kill for subsequent decisions.
-        if hwm > 0 and (hwm - eq) / hwm >= (risk_config.max_drawdown_pct / 100.0):
+        # Drawdown kill for subsequent decisions (live latch; optional for research).
+        if (
+            enable_drawdown_kill
+            and hwm > 0
+            and (hwm - eq) / hwm >= (risk_config.max_drawdown_pct / 100.0)
+        ):
             kill = True
 
         # --- 3) Decisions after close on rebalance dates ---
@@ -285,7 +360,21 @@ def run_ledger(
             continue
         selected = select_top_k(day_scores, k=top_k, score_col=score_col)
         picks = selected.loc[selected["selected"] == 1, "symbol"].astype(str).tolist()
-        targets = equal_weight_notionals(picks, equity_usd=eq, k=top_k)
+        # Credit same-morning exits before sizing/risk (fills: sells then buys).
+        risk_cash, risk_mv, risk_positions = capacity_after_pending_exits(
+            cash_usd=cash,
+            market_value_usd=mv,
+            positions=positions,
+            open_recs=open_recs,
+            pending=pending,
+            entry_session_d=entry,
+            mark_day=day,
+            close_px=close_px,
+            open_px=open_px,
+        )
+        # §15.1: profits do not raise deployment above strategy capital.
+        deployable_usd = min(eq, float(initial_capital_usd))
+        targets = equal_weight_notionals(picks, equity_usd=deployable_usd, k=top_k)
 
         proposed: list[ProposedOrder] = []
         staged: list[dict[str, Any]] = []
@@ -333,14 +422,16 @@ def run_ledger(
 
         # Outstanding buys already submitted (not this decision batch). The risk
         # gate accumulates this batch's notionals itself — do not pre-sum staged.
+        # Portfolio snapshot is post pending-exit credit so overlap day is not
+        # double-counted against gross/cash caps.
         port = PortfolioState(
-            cash_usd=cash,
-            positions=dict(positions),
+            cash_usd=risk_cash,
+            positions=risk_positions,
             strategy_equity_usd=eq,
             strategy_capital_usd=initial_capital_usd,
             high_water_mark_usd=hwm,
             sod_equity_usd=sod_equity,
-            market_value_usd=mv,
+            market_value_usd=risk_mv,
             outstanding_buy_notional_usd=0.0,
             orders_today=0,
             kill_switch_active=kill,
@@ -356,7 +447,13 @@ def run_ledger(
             missing_symbol_count=0,
         )
         if apply_risk:
-            risk_out = evaluate_orders(proposed, port, mkt, risk_config)
+            # Research path disables drawdown latching; also raise the DD halt
+            # threshold so evaluate_orders' independent drawdown_breach check
+            # cannot emit kill_switch rejections and truncate the OOS sample.
+            risk_cfg_eval = risk_config
+            if not enable_drawdown_kill:
+                risk_cfg_eval = risk_config.model_copy(update={"max_drawdown_pct": 100.0})
+            risk_out = evaluate_orders(proposed, port, mkt, risk_cfg_eval)
             approved_ids = {o.client_order_id for o in risk_out.approved}
             for rej in risk_out.rejections:
                 rejection_rows.append(

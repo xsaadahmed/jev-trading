@@ -33,6 +33,7 @@ def run_fast(
     fill_mode: FillMode = "open_t1",
     score_col: str = "score",
     apply_risk: bool = False,
+    enable_drawdown_kill: bool = True,
 ) -> LedgerResult:
     """Fast path: currently delegates to the ledger engine for bit-stable parity.
 
@@ -58,6 +59,7 @@ def run_fast(
         fill_mode=fill_mode,
         score_col=score_col,
         apply_risk=apply_risk,
+        enable_drawdown_kill=enable_drawdown_kill,
     )
 
 

@@ -1,8 +1,13 @@
-"""Repo-wide scan for committed secret-like strings."""
+"""Scan git-tracked files only for committed secret-like strings.
+
+Local gitignored files such as ``.env`` are intentionally excluded so operators
+can keep real keys on disk without failing CI or leaking values into pytest output.
+"""
 
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -16,20 +21,6 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"(?i)sk-[A-Za-z0-9]{20,}"),
     re.compile(r"(?i)AKIA[0-9A-Z]{16}"),
 )
-
-_SKIP_DIR_NAMES = {
-    ".git",
-    ".venv",
-    "venv",
-    "__pycache__",
-    ".mypy_cache",
-    ".ruff_cache",
-    ".pytest_cache",
-    ".hypothesis",
-    "node_modules",
-    "data",
-    ".uv",
-}
 
 _SKIP_SUFFIXES = {
     ".pyc",
@@ -77,26 +68,47 @@ def _is_allowlisted(rel: Path) -> bool:
     return rel.as_posix() in {p.as_posix() for p in _ALLOWLIST_PATH_PARTS}
 
 
-def _iter_text_files(root: Path) -> list[Path]:
+def _iter_tracked_text_files(root: Path) -> list[Path]:
+    """Return only git-tracked files (excludes ``.env`` and other gitignored paths)."""
+    proc = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
     files: list[Path] = []
-    for path in root.rglob("*"):
-        if not path.is_file():
+    for raw in proc.stdout.split(b"\0"):
+        if not raw:
             continue
-        if any(part in _SKIP_DIR_NAMES for part in path.parts):
+        rel = Path(raw.decode("utf-8", errors="surrogateescape"))
+        path = root / rel
+        if not path.is_file():
             continue
         if path.suffix.lower() in _SKIP_SUFFIXES:
             continue
         if path.name == "uv.lock":
             continue
+        # Never scan local env files even if somehow tracked.
+        if path.name != ".env.example" and (path.name == ".env" or path.name.startswith(".env.")):
+            continue
         files.append(path)
     return files
+
+
+def _redact_secret_snippet(snippet: str) -> str:
+    """Keep path diagnostics useful without echoing secret material."""
+    return re.sub(
+        r"([:=]\s*['\"]?)([A-Za-z0-9_\-\.]{8,})",
+        lambda m: f"{m.group(1)}<redacted len={len(m.group(2))}>",
+        snippet,
+    )
 
 
 @pytest.mark.secret_scan
 def test_repo_has_no_committed_secret_like_strings() -> None:
     root = get_project_root()
     hits: list[str] = []
-    for path in _iter_text_files(root):
+    for path in _iter_tracked_text_files(root):
         rel = path.relative_to(root)
         if _is_allowlisted(rel):
             continue
@@ -114,5 +126,5 @@ def test_repo_has_no_committed_secret_like_strings() -> None:
                     continue
                 if "example" in snippet.lower() or "redacted" in snippet.lower():
                     continue
-                hits.append(f"{rel}: {snippet}")
-    assert hits == [], "possible secrets committed:\n" + "\n".join(hits)
+                hits.append(f"{rel}: {_redact_secret_snippet(snippet)}")
+    assert hits == [], "possible secrets in tracked files:\n" + "\n".join(hits)

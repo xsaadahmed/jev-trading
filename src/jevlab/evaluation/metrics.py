@@ -7,6 +7,7 @@ OLS with HAC (Newey-West) standard errors via statsmodels.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import numpy as np
@@ -15,6 +16,47 @@ import statsmodels.api as sm
 from scipy import stats
 
 TRADING_DAYS_PER_YEAR: float = 252.0
+
+
+def _slice_equity_curve(
+    equity_curve: pd.DataFrame,
+    *,
+    start: date | None,
+    end: date | None,
+) -> pd.DataFrame:
+    """Restrict the equity curve to ``[start, end]`` (inclusive) when given."""
+    if equity_curve.empty or (start is None and end is None):
+        return equity_curve
+    frame = equity_curve.copy()
+    frame["date"] = pd.to_datetime(frame["date"]).dt.date
+    if start is not None:
+        frame = frame.loc[frame["date"] >= start]
+    if end is not None:
+        frame = frame.loc[frame["date"] <= end]
+    return frame.reset_index(drop=True)
+
+
+def _slice_trades(
+    trades: pd.DataFrame,
+    *,
+    start: date | None,
+    end: date | None,
+) -> pd.DataFrame:
+    """Keep round-trip legs whose decision_date falls in ``[start, end]``."""
+    if trades is None or trades.empty or (start is None and end is None):
+        return trades if trades is not None else pd.DataFrame()
+    frame = trades.copy()
+    if "decision_date" in frame.columns:
+        frame["decision_date"] = pd.to_datetime(frame["decision_date"]).dt.date
+        key = "decision_date"
+    else:
+        frame["session"] = pd.to_datetime(frame["session"]).dt.date
+        key = "session"
+    if start is not None:
+        frame = frame.loc[frame[key] >= start]
+    if end is not None:
+        frame = frame.loc[frame[key] <= end]
+    return frame.reset_index(drop=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,9 +160,47 @@ def compute_economic_metrics(
     *,
     benchmark_rets: pd.Series | None = None,
     initial_capital_usd: float | None = None,
+    metric_start: date | None = None,
+    metric_end: date | None = None,
 ) -> EconomicMetrics:
-    """Compute §12.2 metrics from a ledger/fast result."""
-    eq = equity_curve.sort_values("date")["equity_usd"].astype(float)
+    """Compute §12.2 metrics from a ledger/fast result.
+
+    When ``metric_start`` / ``metric_end`` are set (walk-forward OOS window),
+    equity and trades are sliced to that window so idle warm-up years do not
+    dilute exposure/CAGR/Sharpe.
+    """
+    curve = _slice_equity_curve(equity_curve, start=metric_start, end=metric_end)
+    trade_frame = _slice_trades(trades, start=metric_start, end=metric_end)
+    if curve.empty:
+        return EconomicMetrics(
+            values={
+                "total_return_dec": 0.0,
+                "cagr_dec": 0.0,
+                "ann_vol_dec": 0.0,
+                "sharpe": 0.0,
+                "sortino": 0.0,
+                "max_drawdown_dec": 0.0,
+                "calmar": 0.0,
+                "hit_rate": 0.0,
+                "avg_trade_dec": 0.0,
+                "median_trade_dec": 0.0,
+                "profit_factor": 0.0,
+                "turnover": 0.0,
+                "exposure": 0.0,
+                "trade_count": 0.0,
+                "avg_holding_sessions": 0.0,
+                "cvar_5pct_dec": 0.0,
+                "cvar_1pct_dec": 0.0,
+                "skewness": 0.0,
+                "top5_trade_share_pnl": 0.0,
+                "beta": float("nan"),
+                "alpha_daily_dec": float("nan"),
+                "alpha_ann_dec": float("nan"),
+                "beta_se_hac": float("nan"),
+                "alpha_se_hac": float("nan"),
+            }
+        )
+    eq = curve.sort_values("date")["equity_usd"].astype(float)
     rets = daily_returns(eq)
     init = float(initial_capital_usd) if initial_capital_usd is not None else float(eq.iloc[0])
     total_ret = float(eq.iloc[-1] / init - 1.0) if init > 0 and len(eq) else 0.0
@@ -131,9 +211,9 @@ def compute_economic_metrics(
     so = sortino_ratio(rets)
     calmar = float(cagr / abs(dd)) if dd < 0 else 0.0
 
-    trade_stats = _trade_stats(trades)
-    exposure = _exposure(equity_curve)
-    turnover = _turnover(trades, equity_curve)
+    trade_stats = _trade_stats(trade_frame)
+    exposure = _exposure(curve)
+    turnover = _turnover(trade_frame, curve)
 
     out: dict[str, float] = {
         "total_return_dec": total_ret,

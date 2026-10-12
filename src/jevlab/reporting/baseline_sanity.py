@@ -18,6 +18,7 @@ from jevlab.backtest.costs import CostModel
 from jevlab.backtest.fast import equity_curves_equal, run_fast
 from jevlab.backtest.ledger import run_ledger
 from jevlab.config.models import RiskConfig
+from jevlab.cv.walkforward import OOS_END, OOS_START
 from jevlab.evaluation.metrics import (
     compute_economic_metrics,
     max_drawdown_dec,
@@ -126,13 +127,25 @@ def build_sanity_report(
     top_k: int = 3,
     phases: list[int] | None = None,
     max_drawdown_pathology_dec: float = 0.40,
+    metric_start: date | None = OOS_START,
+    metric_end: date | None = OOS_END,
+    enable_drawdown_kill: bool = False,
 ) -> SanityReport:
-    """Run R0/A/D (whatever keys are provided) x cost scenarios x phases."""
+    """Run R0/A/D (whatever keys are provided) x cost scenarios x phases.
+
+    Research defaults: metrics on the walk-forward OOS window only, and
+    drawdown kill latched off so live 20% kill does not truncate G3 sample
+    (pathology still checked at ``max_drawdown_pathology_dec``).
+    """
     phases = phases or [0, 1, 2]
     report = SanityReport()
     report.notes.append(power_statement())
     report.notes.append(
         "Baseline profitability is informational only; do not halt on negative CAGR."
+    )
+    report.notes.append(
+        f"Economic metrics window: {metric_start} → {metric_end}; "
+        f"enable_drawdown_kill={enable_drawdown_kill}."
     )
 
     # Label base rate
@@ -177,6 +190,7 @@ def build_sanity_report(
                     top_k=top_k,
                     phase=phase,
                     apply_risk=True,
+                    enable_drawdown_kill=enable_drawdown_kill,
                 )
                 fast = run_fast(
                     bars,
@@ -187,6 +201,7 @@ def build_sanity_report(
                     top_k=top_k,
                     phase=phase,
                     apply_risk=True,
+                    enable_drawdown_kill=enable_drawdown_kill,
                 )
                 if not ledger.invariants_ok:
                     accounting_ok = False
@@ -197,6 +212,8 @@ def build_sanity_report(
                     ledger.equity_curve,
                     ledger.trades,
                     initial_capital_usd=initial_capital_usd,
+                    metric_start=metric_start,
+                    metric_end=metric_end,
                 ).to_dict()
                 n_trades = int(metrics.get("trade_count", 0))
                 trades_per_phase[model_id][phase] = (
@@ -284,6 +301,7 @@ def build_sanity_report(
                 top_k=top_k,
                 phase=0,
                 apply_risk=False,
+                enable_drawdown_kill=False,
             )
             if not led.equity_curve.empty:
                 terminals.append(
