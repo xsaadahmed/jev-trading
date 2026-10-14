@@ -13,7 +13,7 @@ bucket_edges: [0.05, 0.20, 0.40, 0.60, 0.80, 0.95]
 state_schema_version: "state_v1"
 qset_version: "qset_v1"
 qset_path: config/qset_v1.json
-qset_hash: null
+qset_hash: "497af0695871ffd1250d0050e16d38b23ebbfaeaf748b9f2f00fa59432aaa8a8"
 audit_qset_version: "audit_qset_v1"
 audit_qset_path: config/audit_qset.json
 audit_qset_hash: null

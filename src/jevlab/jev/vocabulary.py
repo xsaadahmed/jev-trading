@@ -14,6 +14,7 @@ from jevlab.features.columns import STATE_V1_SOURCE_COLUMNS
 # Constant fund descriptor (never varies by observation).
 FUND_TYPE: str = "a diversified US equity exchange-traded fund"
 SCHEMA_VALUE: str = "state_v1"
+SCHEMA_VALUE_COARSE: str = "state_v1c"
 
 # Bucket edges from config (inclusive upper bounds for first six bins).
 DEFAULT_BUCKET_EDGES: tuple[float, ...] = (0.05, 0.20, 0.40, 0.60, 0.80, 0.95)
@@ -176,7 +177,13 @@ def build_closed_vocabulary(
     ``bucket_edges`` is accepted for API stability; phrase banks are fixed for V1.
     """
     _ = bucket_edges
-    leaves: set[str] = {SCHEMA_VALUE, FUND_TYPE, *STATE_KEYS, *STREAK_WORDS}
+    leaves: set[str] = {
+        SCHEMA_VALUE,
+        SCHEMA_VALUE_COARSE,
+        FUND_TYPE,
+        *STATE_KEYS,
+        *STREAK_WORDS,
+    }
     for phrases in FIELD_PHRASE_BANK.values():
         leaves.update(phrases)
     return frozenset(leaves)

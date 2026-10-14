@@ -97,9 +97,12 @@ def validate_state_privacy(
     *,
     universe_tickers: Iterable[str] = UNIVERSE_TICKERS,
     ticker_allowlist: Iterable[str] = TICKER_ALLOWLIST,
-    expected_schema: str = SCHEMA_VALUE,
+    expected_schema: str | None = None,
+    allowed_schemas: frozenset[str] | None = None,
 ) -> list[str]:
     """Return a list of privacy violations (empty iff state is clean)."""
+    from jevlab.jev.vocabulary import SCHEMA_VALUE_COARSE
+
     violations: list[str] = []
     tickers = {t.upper() for t in universe_tickers}
     allow = {t.upper() for t in ticker_allowlist}
@@ -107,9 +110,13 @@ def validate_state_privacy(
     if not isinstance(state, Mapping):
         return ["state_not_mapping"]
 
-    # (6) schema/version fields must equal configured values
+    # (6) schema/version fields must equal configured values (state_v1 or state_v1c)
     schema_val = state.get("schema")
-    if schema_val != expected_schema:
+    allowed = allowed_schemas or frozenset({SCHEMA_VALUE, SCHEMA_VALUE_COARSE})
+    if expected_schema is not None:
+        if schema_val != expected_schema:
+            violations.append(f"schema_mismatch:{schema_val!r}")
+    elif schema_val not in allowed:
         violations.append(f"schema_mismatch:{schema_val!r}")
 
     # (5) prohibited metadata keys

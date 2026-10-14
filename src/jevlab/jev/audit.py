@@ -28,7 +28,14 @@ from sqlalchemy import text
 
 from jevlab.cv.walkforward import DEV_MAX_DATE
 from jevlab.features.columns import MODEL_A_COLUMNS
-from jevlab.jev.vocabulary import DEFAULT_BUCKET_EDGES, FIELD_PHRASE_BANK, bucket_index
+from jevlab.jev.vocabulary import (
+    DEFAULT_BUCKET_EDGES,
+    FIELD_PHRASE_BANK,
+    bucket_index,
+)
+from jevlab.jev.vocabulary import (
+    SCHEMA_VALUE_COARSE as SCHEMA_V1C,
+)
 from jevlab.utils.hashing import canonical_json, sha256_of
 from jevlab.utils.logging import get_logger
 from jevlab.utils.registry import init_registry
@@ -72,7 +79,6 @@ CHOICE_TO_ERA: dict[str, EraId] = {v: k for k, v in ERA_TO_CHOICE.items()}
 
 # Coarse state_v1c: three buckets (low / mid / high).
 COARSE_BUCKET_EDGES: tuple[float, ...] = (1.0 / 3.0, 2.0 / 3.0)
-SCHEMA_V1C: str = "state_v1c"
 
 
 class SealedPartitionError(PermissionError):
@@ -255,8 +261,15 @@ def sample_rows_with_spacing(
     min_session_gap: int = 5,
     date_col: str = "date",
     sessions: list[date] | None = None,
+    symbol_col: str = "symbol",
+    per_symbol_spacing: bool = True,
 ) -> pd.DataFrame:
-    """Sample up to ``n`` rows with dates at least ``min_session_gap`` sessions apart."""
+    """Sample up to ``n`` rows with dates at least ``min_session_gap`` sessions apart.
+
+    When ``per_symbol_spacing`` is True (default), the gap constraint is applied
+    independently per symbol so multiple ETFs on the same date may be kept.
+    This is required to reach D1 n=600 / D2 n=2000 under the date-spacing rule.
+    """
     if frame.empty or n <= 0:
         return frame.iloc[0:0].copy()
     work = frame.copy()
@@ -267,17 +280,21 @@ def sample_rows_with_spacing(
     rng = np.random.default_rng(seed)
     order = rng.permutation(len(work))
     chosen: list[int] = []
-    picked_session_idx: list[int] = []
+    picked_by_key: dict[str, list[int]] = {}
     for pos in order:
         row = work.iloc[int(pos)]
         d = row[date_col]
         si = idx_map.get(d)
         if si is None:
             continue
-        if any(abs(si - pj) < min_session_gap for pj in picked_session_idx):
+        key = (
+            str(row[symbol_col]) if per_symbol_spacing and symbol_col in work.columns else "__all__"
+        )
+        prior = picked_by_key.get(key, [])
+        if any(abs(si - pj) < min_session_gap for pj in prior):
             continue
         chosen.append(int(pos))
-        picked_session_idx.append(si)
+        picked_by_key.setdefault(key, []).append(si)
         if len(chosen) >= n:
             break
     return work.iloc[chosen].reset_index(drop=True)
@@ -374,24 +391,101 @@ def degeneracy_check(
     return report
 
 
+DETERMINISM_NOUL_SD_THRESHOLD: float = 0.02
+
+
 def determinism_stats(
     repeats: list[pd.DataFrame],
     feature_cols: list[str],
+    *,
+    noul_cols: list[str] | None = None,
+    sd_threshold: float = DETERMINISM_NOUL_SD_THRESHOLD,
+    abs_eps: float = 1e-12,
 ) -> dict[str, Any]:
-    """Per-feature sd and max abs diff across repeat attempts (same states)."""
+    """Per-feature within-state sd / max abs diff across repeat attempts."""
     if not repeats:
         return {"features": {}, "warning_banner": WARNING_BANNER}
-    out: dict[str, Any] = {"warning_banner": WARNING_BANNER, "features": {}}
+    out: dict[str, Any] = {
+        "warning_banner": WARNING_BANNER,
+        "contamination_label": CONTAMINATION_LABEL,
+        "features": {},
+        "sd_threshold_noul": sd_threshold,
+        "mitigation_triggered": False,
+    }
+    n_states = len(repeats[0])
+    any_differ = np.zeros(n_states, dtype=bool)
     for col in feature_cols:
-        mats = []
-        for df in repeats:
-            mats.append(df[col].to_numpy(dtype=float))
+        mats = [df[col].to_numpy(dtype=float) for df in repeats]
         stacked = np.vstack(mats)
+        within_sd = np.std(stacked, axis=0, ddof=1)
+        max_abs = np.ptp(stacked, axis=0)
+        any_differ |= max_abs > abs_eps
         out["features"][col] = {
-            "sd_mean": float(np.mean(np.std(stacked, axis=0, ddof=1))),
-            "max_abs_diff": float(np.max(np.ptp(stacked, axis=0))),
+            "mean_within_state_sd": float(np.mean(within_sd)),
+            "median_within_state_sd": float(np.median(within_sd)),
+            "max_within_state_sd": float(np.max(within_sd)),
+            "max_abs_diff": float(np.max(max_abs)),
+            # Backward-compatible aliases used by earlier dry-run tests/docs.
+            "sd_mean": float(np.mean(within_sd)),
         }
+    out["fraction_states_any_differ"] = float(np.mean(any_differ)) if n_states else float("nan")
+    noul_names = noul_cols or [
+        c for c in feature_cols if c in {"j_dislocation", "j_regime"} or c.startswith("j_noul")
+    ]
+    triggered = False
+    for col in noul_names:
+        if col not in out["features"]:
+            continue
+        if out["features"][col]["mean_within_state_sd"] > sd_threshold:
+            triggered = True
+    out["mitigation_triggered"] = triggered
+    out["mitigation_note"] = (
+        "If sd of any Noul > 0.02, store the mean of 3 calls for all states (§2.5)."
+        if triggered
+        else "Determinism mitigation threshold not triggered."
+    )
     return out
+
+
+def summarize_numeric_series(vals: list[float] | np.ndarray) -> dict[str, Any]:
+    """Distribution summary for degeneracy reporting."""
+    arr = np.asarray(vals, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        return {
+            "n": 0,
+            "mean": float("nan"),
+            "std": float("nan"),
+            "min": float("nan"),
+            "max": float("nan"),
+            "quantiles": {},
+        }
+    qs = [0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]
+    qv = np.quantile(arr, qs)
+    return {
+        "n": int(arr.size),
+        "mean": float(np.mean(arr)),
+        "std": float(np.std(arr, ddof=1)) if arr.size > 1 else 0.0,
+        "min": float(np.min(arr)),
+        "max": float(np.max(arr)),
+        "quantiles": {f"q{int(q * 100):02d}": float(v) for q, v in zip(qs, qv, strict=True)},
+    }
+
+
+def class_probability_concentration(
+    choice_rows: list[dict[str, float]],
+) -> dict[str, Any]:
+    """Summarize how peaked choice distributions are across rows."""
+    if not choice_rows:
+        return {"n": 0, "mean_pmax": float("nan"), "frac_pmax_gt_0.98": float("nan")}
+    pmax = np.array([max(r.values()) if r else float("nan") for r in choice_rows], dtype=float)
+    return {
+        "n": len(choice_rows),
+        "mean_pmax": float(np.nanmean(pmax)),
+        "median_pmax": float(np.nanmedian(pmax)),
+        "frac_pmax_gt_0.98": float(np.mean(pmax > 0.98)),
+        "frac_pmax_gt_0.90": float(np.mean(pmax > 0.90)),
+    }
 
 
 def multinomial_era_benchmark(
@@ -517,19 +611,72 @@ def spearman_rank_ic(scores: np.ndarray, target: np.ndarray) -> float:
     return float(rho)
 
 
+def _oof_multinomial_preds(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    n_splits: int = 3,
+    seed: int = 42,
+) -> np.ndarray:
+    """Out-of-fold class predictions for blocked multinomial logistic."""
+    preds = np.full(len(y), -1, dtype=int)
+    if len(y) < n_splits * 5:
+        pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500, random_state=seed)),
+            ]
+        )
+        pipe.fit(X, y)
+        return pipe.predict(X).astype(int)
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    for train_idx, test_idx in tscv.split(X):
+        if len(np.unique(y[train_idx])) < 2 or len(test_idx) == 0:
+            continue
+        pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500, random_state=seed)),
+            ]
+        )
+        pipe.fit(X[train_idx], y[train_idx])
+        preds[test_idx] = pipe.predict(X[test_idx]).astype(int)
+    missing = preds < 0
+    if missing.any():
+        pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500, random_state=seed)),
+            ]
+        )
+        pipe.fit(X[~missing], y[~missing]) if (~missing).any() else pipe.fit(X, y)
+        preds[missing] = pipe.predict(X[missing]).astype(int)
+    return preds
+
+
 def d1_from_predictions(
     y_true_era: list[EraId],
     y_pred_choice: list[str],
     *,
     X_benchmark: np.ndarray | None = None,
+    dates: np.ndarray | list[date] | None = None,
 ) -> dict[str, Any]:
     """D1 summary from era labels and Choice predictions (early/middle/late)."""
     n = len(y_true_era)
     correct = 0
-    for t, p in zip(y_true_era, y_pred_choice, strict=True):
-        if ERA_TO_CHOICE[t] == p:
+    jev_ok = np.zeros(n, dtype=float)
+    for i, (t, p) in enumerate(zip(y_true_era, y_pred_choice, strict=True)):
+        hit = ERA_TO_CHOICE[t] == p
+        if hit:
             correct += 1
+        jev_ok[i] = 1.0 if hit else 0.0
     pval = exact_binomial_pvalue_ge(correct, n, 1.0 / 3.0)
+    labels = ["early", "middle", "late"]
+    cm = {a: {b: 0 for b in labels} for a in labels}
+    for t, p in zip(y_true_era, y_pred_choice, strict=True):
+        true_lab = ERA_TO_CHOICE[t]
+        pred_lab = p if p in labels else "early"
+        cm[true_lab][pred_lab] += 1
     body: dict[str, Any] = {
         "warning_banner": WARNING_BANNER,
         "contamination_label": CONTAMINATION_LABEL,
@@ -539,19 +686,71 @@ def d1_from_predictions(
         "binomial_p_one_sided": pval,
         "chance": 1.0 / 3.0,
         "orientation_k_for_p01": min_k_for_pvalue(600, 1.0 / 3.0, 0.01),
+        "confusion_matrix": cm,
+        "interpretation": "NOT A WARNING SIGNAL",
     }
     if X_benchmark is not None:
         y_num = np.array([{"E1": 0, "E2": 1, "E3": 2}[e] for e in y_true_era])
         bench = multinomial_era_benchmark(X_benchmark, y_num)
-        body["benchmark"] = bench
-        body["jev_minus_benchmark"] = float(body["accuracy"] - bench["accuracy"])
-        # Bootstrap CI of difference on paired correctness (Jev vs bench hard labels
-        # approximated by accuracy delta; full CI filled when live preds exist).
+        oof = _oof_multinomial_preds(X_benchmark, y_num)
+        bench_ok = (oof == y_num).astype(float)
+        bench_acc = float(np.mean(bench_ok)) if n else float("nan")
+        body["benchmark"] = {**bench, "oof_accuracy": bench_acc}
+        delta = float(body["accuracy"] - bench_acc)
+        body["jev_minus_benchmark"] = delta
+        date_arr = np.asarray(dates) if dates is not None else np.arange(n)
+        diff = jev_ok - bench_ok
+        ci = date_block_bootstrap_ci(diff, date_arr, seed=11)
+        body["jev_minus_benchmark_ci"] = ci
+        # Warning only if Jev clearly beats the deterministic benchmark.
+        if math.isfinite(ci["lo"]) and ci["lo"] > 0:
+            body["interpretation"] = "WARNING SIGNAL"
         body["note"] = (
             "If Jev accuracy is clearly above the deterministic benchmark "
-            "(bootstrap CI of the difference excludes 0), treat as a WARNING only."
+            "(bootstrap CI of the difference excludes 0), treat as a WARNING only. "
+            f"{WARNING_BANNER}."
         )
+    # Also flag strong above-chance as informational (not automatic warning vs bench).
+    body["above_chance_p01"] = bool(pval < 0.01)
     return body
+
+
+def _oof_logistic_scores(
+    X: np.ndarray,
+    y: np.ndarray,
+    *,
+    n_splits: int = 3,
+    seed: int = 42,
+) -> np.ndarray:
+    """Out-of-fold positive-class probabilities for binary logistic."""
+    scores = np.full(len(y), np.nan, dtype=float)
+    if len(np.unique(y)) < 2:
+        return scores
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+    filled = False
+    for train_idx, test_idx in tscv.split(X):
+        if len(np.unique(y[train_idx])) < 2 or len(test_idx) < 5:
+            continue
+        pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500, random_state=seed)),
+            ]
+        )
+        pipe.fit(X[train_idx], y[train_idx])
+        scores[test_idx] = pipe.predict_proba(X[test_idx])[:, 1]
+        filled = True
+    if not filled or np.isnan(scores).any():
+        pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(max_iter=500, random_state=seed)),
+            ]
+        )
+        pipe.fit(X, y)
+        proba = pipe.predict_proba(X)[:, 1]
+        scores = np.where(np.isnan(scores), proba, scores)
+    return scores
 
 
 def d2_from_scores(
@@ -567,19 +766,72 @@ def d2_from_scores(
         "contamination_label": CONTAMINATION_LABEL,
         "n": len(y),
         "no_threshold": True,
+        "interpretation": "diagnostic evidence only (no numeric pass/fail)",
     }
-    if len(np.unique(y)) >= 2:
-        auc = float(roc_auc_score(y, jev_scores))
+    y_arr = np.asarray(y, dtype=float)
+    scores = np.asarray(jev_scores, dtype=float)
+    date_arr = np.asarray(dates)
+    if len(np.unique(y_arr[np.isfinite(y_arr)])) >= 2:
+        auc = float(roc_auc_score(y_arr, scores))
         body["jev_auc"] = auc
-        body["jev_auc_ci"] = date_block_bootstrap_ci(jev_scores, dates, seed=1)
+        # Bootstrap the AUC itself via date blocks.
+        uniq = np.unique(date_arr)
+        rng = np.random.default_rng(1)
+        boot_aucs: list[float] = []
+        date_to_idx = {d: np.where(date_arr == d)[0] for d in uniq}
+        for _ in range(500):
+            draw = rng.choice(uniq, size=len(uniq), replace=True)
+            idxs = np.concatenate([date_to_idx[d] for d in draw])
+            yy, ss = y_arr[idxs], scores[idxs]
+            if len(np.unique(yy)) < 2:
+                continue
+            boot_aucs.append(float(roc_auc_score(yy, ss)))
+        if boot_aucs:
+            lo, hi = np.quantile(boot_aucs, [0.025, 0.975])
+            body["jev_auc_ci"] = {"mean": auc, "lo": float(lo), "hi": float(hi)}
+        else:
+            body["jev_auc_ci"] = date_block_bootstrap_ci(scores, date_arr, seed=1)
     else:
         body["jev_auc"] = float("nan")
-    body["jev_rank_ic"] = spearman_rank_ic(jev_scores, y.astype(float))
+    ric = spearman_rank_ic(scores, y_arr)
+    body["jev_rank_ic"] = ric
+    # Block-bootstrap the rank-IC via Fisher z is heavy; resample date blocks of paired ranks.
+    uniq = np.unique(date_arr)
+    rng = np.random.default_rng(2)
+    boot_ics: list[float] = []
+    date_to_idx = {d: np.where(date_arr == d)[0] for d in uniq}
+    for _ in range(500):
+        draw = rng.choice(uniq, size=len(uniq), replace=True)
+        idxs = np.concatenate([date_to_idx[d] for d in draw])
+        boot_ics.append(spearman_rank_ic(scores[idxs], y_arr[idxs]))
+    if boot_ics:
+        lo, hi = np.quantile(boot_ics, [0.025, 0.975])
+        body["jev_rank_ic_ci"] = {"mean": ric, "lo": float(lo), "hi": float(hi)}
     if X_benchmark is not None:
-        body["benchmark"] = logistic_outcome_benchmark(X_benchmark, y)
+        bench = logistic_outcome_benchmark(X_benchmark, y_arr.astype(int))
+        bench_scores = _oof_logistic_scores(X_benchmark, y_arr.astype(int))
+        bench_ic = spearman_rank_ic(bench_scores, y_arr)
+        body["benchmark"] = {
+            **bench,
+            "rank_ic": bench_ic,
+        }
+        if math.isfinite(body["jev_auc"]) and math.isfinite(bench.get("auc", float("nan"))):
+            body["jev_minus_benchmark_auc"] = float(body["jev_auc"] - bench["auc"])
+        body["jev_minus_benchmark_rank_ic"] = (
+            float(ric - bench_ic)
+            if math.isfinite(ric) and math.isfinite(bench_ic)
+            else float("nan")
+        )
+        # Warning heuristic only: Jev AUC clearly above benchmark point estimate.
+        if (
+            math.isfinite(body.get("jev_minus_benchmark_auc", float("nan")))
+            and body["jev_minus_benchmark_auc"] > 0.05
+        ):
+            body["interpretation"] = "WARNING SIGNAL (diagnostic only; not proof)"
         body["note"] = (
             "A Jev AUC far above the benchmark is a WARNING "
-            "(real skill or leakage; cannot be distinguished here)."
+            "(real skill or leakage; cannot be distinguished here). "
+            f"{WARNING_BANNER}."
         )
     return body
 
@@ -680,10 +932,16 @@ def plan_audit_calls(
     n_d1: int = 600,
     n_d2: int = 2000,
     n_d5: int = 3000,
+    include_d5_fine: bool = True,
 ) -> dict[str, Any]:
-    """Count planned audit API calls (determinism stores repeats as attempts)."""
-    # Dev degeneracy: 1 call/state; determinism: (repeats-1) extra on same 300;
-    # D1/D2/D5: 1 each (D5 may share states with a subset — counted separately).
+    """Count planned audit API calls (determinism stores repeats as attempts).
+
+    D5 compares fine ``state_v1`` vs coarse ``state_v1c`` on the same subset.
+    When Phase 7 fine features are absent, both legs are live-called
+    (``include_d5_fine=True``), matching the comparison required by §11.4.
+    """
+    # Dev degeneracy uses attempt-1 of the determinism sample (same 300 states).
+    # Determinism extras are attempts 2..R. D1/D2 use audit_qset; D5 uses qset_v1.
     calls = {
         "dev_degeneracy": n_dev,
         "determinism_extra_repeats": n_dev * (n_determinism_repeats - 1),
@@ -691,6 +949,8 @@ def plan_audit_calls(
         "d2_outcome": n_d2,
         "d5_coarse": n_d5,
     }
+    if include_d5_fine:
+        calls["d5_fine"] = n_d5
     total = int(sum(calls.values()))
     guard = BudgetGuard()
     est = guard.estimate_usd(total)

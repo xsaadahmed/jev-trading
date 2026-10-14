@@ -1,8 +1,33 @@
 # Pre-registration — Jev Trading Research V1
 
-**Status:** Draft committed at Phase 0. Tag `prereg-v1` is applied **before** bulk Jev inference (Phase 7), not at scaffold time.
+**Status:** Frozen for historical research. Tags `prereg-v1` and `qset-v1-frozen` are applied **before** bulk Jev inference (Phase 7).
 
 **Source:** MASTER_SPEC.md Sections 3, 4, 8, and 16. Section 21A is the canonical invariant list; if this document conflicts with §21A, §21A wins.
+
+---
+
+## 0. Frozen research state (recorded at freeze)
+
+| Item | Frozen value |
+| ---- | ------------ |
+| qset version | `qset_v1` |
+| qset content hash | `497af0695871ffd1250d0050e16d38b23ebbfaeaf748b9f2f00fa59432aaa8a8` |
+| state schema | `state_v1` |
+| Jev model (pinned) | `jev-1.13.0` |
+| Universe version | `v1` — SPY, QQQ, IWM, DIA, XLB, XLE, XLF, XLI, XLK, XLP, XLU, XLV, XLY |
+| Deterministic features | `MODEL_A_COLUMNS` (17): ret_1d, ret_3d, ret_5d, ret_20d, down_streak, px_vs_sma20, px_vs_sma50, px_vs_sma200, rsi_3, rsi_14, rv_pct_252, vol_ratio_20, vix_lag1_pct_252, spy_ret_5d, spy_px_vs_sma200, rel_ret_5d, xs_rank_ret_5d |
+| Jev features (Model B) | 8: j_dislocation, j_downside_E, j_downside_p3, j_regime, j_pullback_p, j_breakdown_p, j_sideways_p, j_setup_conf |
+| Primary target | y = 1[X > 0], X = R − R̄, R = aO(t+4)/aO(t+1) − 1; eligible rows only |
+| Horizon / execution | H = 3 sessions; decision close t; entry open t+1; exit open t+4; K = 3; rebalance every 3 sessions |
+| Dates / splits | Train/dev features from 2016-01-04 → 2023-12-29; walk-forward OOS 2019Q1–2023Q4 (20 quarterly folds, embargo 5); sealed 2024-01-02 → 2025-12-31 (unopened at freeze) |
+| Costs (fixed) | optimistic / normal / pessimistic / stress: 1 / 2.5 / 6 / 12 bps per side + ≈0.3 bp sell fee |
+| Statistical tests | Date-block stationary bootstrap (mean block 10); Diebold–Mariano with HAC lag 5; confirmatory A→B tests exactly two (ΔlogLoss, ΔIC), Holm-adjusted; deflated Sharpe via trial ledger |
+| Placebos (§13) | P1 within-date shuffle (N=1000); P2 global shuffle (N=500); P3 circular-shift within asset lag≥60 (N=500); P4 AR(1)-matched Gaussian noise (N=500); P5 deterministic projection (residual retains ≥50% of gain); P6 state-shuffle (3,000 states) |
+| Acceptance thresholds | MASTER_SPEC §16.1 G1–G10 for `HISTORICAL_RESEARCH_PASS` (unchanged); §16.2 T1–T10; §16.3 S1–S8 |
+| Contamination disposition | `proceed_with_caveats` (2026-10-14, Saad Ahmed); Phase 6 AUDIT_REPORT hash `cea1517493c2fad145c6011e77d4efa9248b91159e97e4786f0558ea11083724` |
+| Evidence labeling | All historical Jev results remain **potentially training-contaminated**; SCALE_READY requires clean post-deployment forward data |
+
+No hypothesis, threshold, model, feature, qset wording, strategy rule, cost assumption, or evaluation criterion was altered at freeze.
 
 ---
 

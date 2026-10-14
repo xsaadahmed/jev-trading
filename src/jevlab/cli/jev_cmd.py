@@ -22,6 +22,11 @@ from jevlab.jev.audit import (
     write_audit_report,
 )
 from jevlab.jev.audit import freeze_qset as freeze_qset_impl
+from jevlab.jev.audit_live import (
+    ModelResolvedMismatchError,
+    run_audit_live,
+    update_disposition_factual,
+)
 from jevlab.jev.batch_runner import (
     UPPER_BOUND_STATES,
     read_forward_start_date,
@@ -39,6 +44,24 @@ from jevlab.utils.paths import ProjectPaths, get_project_root
 
 app = typer.Typer(help="Jev API smoke / audit / freeze / batch commands.")
 log = get_logger(__name__)
+
+
+def _load_dotenv_if_present() -> None:
+    """Set process env from repo-root ``.env`` if variables are not already set."""
+    import os
+
+    env_path = get_project_root() / ".env"
+    if not env_path.is_file():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+        key, _, val = raw.partition("=")
+        key = key.strip()
+        val = val.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = val
 
 
 @app.command("smoke")
@@ -143,6 +166,8 @@ def audit_cmd(
 ) -> None:
     """Run §11.4 diagnostics (warning signals only). Uses audit_qset, never qset_v1."""
     configure_logging()
+    # Load local .env if present (JEV_API_KEY) without requiring python-dotenv.
+    _load_dotenv_if_present()
     paths = ProjectPaths.from_root(get_project_root())
     configs = load_all_configs(paths.config)
     # Confirm sealed reads are refused (path under data/sealed/).
@@ -168,20 +193,6 @@ def audit_cmd(
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
 
-    if live:
-        typer.echo(
-            "LIVE audit mode is implemented as a guarded scaffold in Phase 6: "
-            "full bulk diagnostic inference is not auto-executed here. "
-            "Use dry-run for planned cost; Phase 6 acceptance is the AUDIT_REPORT "
-            "plus human contamination disposition. Real per-state calls belong "
-            "behind an explicit follow-up operator run with budget remaining.",
-            err=True,
-        )
-        # Still refuse to silently burn budget: require dry-run for automated CI.
-        # Live path records the plan and exits without calling the API in V1 Phase 6
-        # automation (operator must use a dedicated script later if needed).
-        typer.echo("Refusing automated live fan-out; write dry-run report instead.")
-
     features = None
     feat_path = paths.data_features / FEATURE_VERSION
     if feat_path.exists():
@@ -192,18 +203,119 @@ def audit_cmd(
         features = read_feature_store(feat_path)
         features = guard_sealed.filter_dev_frame(features)
 
-    report = run_audit_dry(features, sealed_root=paths.data_sealed)
-    report.meta["audit_qset_version"] = audit_qset.qset_version
-    report.meta["audit_qset_hash"] = audit_qset.content_hash
-    report.meta["budget_usd"] = budget_usd
-    report.meta["live_requested"] = live
     out = paths.reports / "audit"
-    md = write_audit_report(report, out)
+    if not live:
+        report = run_audit_dry(features, sealed_root=paths.data_sealed)
+        report.meta["audit_qset_version"] = audit_qset.qset_version
+        report.meta["audit_qset_hash"] = audit_qset.content_hash
+        report.meta["budget_usd"] = budget_usd
+        report.meta["live_requested"] = False
+        md = write_audit_report(report, out)
+        typer.echo(f"api_calls={report.meta.get('api_calls', 0)}")
+        typer.echo(f"wrote {md} (hash={report.content_hash()})")
+        typer.echo(
+            "Complete docs/contamination_disposition.md as a HUMAN "
+            "(code never auto-fills the decision)."
+        )
+        return
+
+    if features is None or features.empty:
+        typer.echo("live audit requires a non-empty feature store <= 2023-12-29", err=True)
+        raise typer.Exit(code=2)
+
+    # Load research qset (not frozen yet — hash may be null).
+    research_qset = load_qset(
+        paths.root / configs.jev.qset_path,
+        expected_hash=configs.jev.qset_hash,
+        expected_purpose="research",
+    )
+
+    from jevlab.data.store import DataStore
+    from jevlab.targets.labels import build_labels
+
+    store = DataStore(
+        bars_dir=paths.data_processed / "bars",
+        external_dir=paths.data_processed / "external",
+        raw_dir=paths.data_raw,
+        registry_path=paths.registry / "experiments.sqlite",
+    )
+    bars = store.read_bars(vendor=configs.data.primary_vendor)
+    bars = SealedDataGuard(
+        sealed_root=paths.data_sealed,
+        registry_path=paths.registry / "experiments.sqlite",
+    ).filter_dev_frame(bars)
+    labels = build_labels(
+        bars,
+        eligible=features.loc[:, ["symbol", "date", "eligible"]]
+        if "eligible" in features.columns
+        else None,
+        universe_symbols=list(configs.universe.symbols),
+    )
+    labels = SealedDataGuard(
+        sealed_root=paths.data_sealed,
+        registry_path=paths.registry / "experiments.sqlite",
+    ).filter_dev_frame(labels)
+
+    cache = JevCache(paths.root / configs.jev.cache_dir)
+    client = JevClient(config=configs.jev)
+    checkpoint_path = paths.data_jev_cache / "audit_checkpoint.sqlite"
+
+    try:
+        report = run_audit_live(
+            features,
+            labels=labels,
+            research_qset=research_qset,
+            audit_qset=audit_qset,
+            client=client,
+            cache=cache,
+            route=configs.jev.route,
+            model_id=configs.jev.model_id,
+            state_schema_version=configs.jev.state_schema_version,
+            bucket_edges=configs.jev.bucket_edges or list(DEFAULT_BUCKET_EDGES),
+            sealed_root=paths.data_sealed,
+            out_dir=out,
+            checkpoint_path=checkpoint_path,
+            budget_usd=budget_usd,
+            jev_cutoff_path=paths.docs / "jev_cutoff.md",
+            registry_path=paths.registry / "experiments.sqlite",
+        )
+    except ModelResolvedMismatchError as exc:
+        typer.echo(f"PHASE 6 BLOCKED: {exc}", err=True)
+        raise typer.Exit(code=3) from exc
+    except BudgetExceededError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    finally:
+        client.close()
+
+    report_hash = report.content_hash()
+    md = out / "AUDIT_REPORT.md"
+    update_disposition_factual(
+        paths.docs / "contamination_disposition.md",
+        report_hash=report_hash,
+        audit_report_path=str(md.relative_to(paths.root)).replace("\\", "/"),
+        audit_qset_version=audit_qset.qset_version,
+        audit_qset_hash=audit_qset.content_hash,
+        research_qset_hash=research_qset.content_hash,
+        live_calls=True,
+        warnings=list(report.meta.get("warnings") or []),
+        diagnostics=[
+            "degeneracy",
+            "determinism",
+            "D1",
+            "D2",
+            "D3_deferred",
+            "D5",
+            "D6",
+        ],
+    )
     typer.echo(f"api_calls={report.meta.get('api_calls', 0)}")
-    typer.echo(f"wrote {md} (hash={report.content_hash()})")
+    typer.echo(f"spent_usd={report.meta.get('spent_usd', 0)}")
+    typer.echo(f"wrote {md} (hash={report_hash})")
     typer.echo(
-        "Complete docs/contamination_disposition.md as a HUMAN "
-        "(code never auto-fills the decision)."
+        "Updated factual fields in docs/contamination_disposition.md; "
+        "HUMAN must select proceed|proceed_with_caveats|stop. "
+        "Did NOT freeze qset. Did NOT create tags."
     )
 
 
