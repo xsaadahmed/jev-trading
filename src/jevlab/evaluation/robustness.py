@@ -221,18 +221,26 @@ def regime_splits(
 ) -> list[dict[str, Any]]:
     """Evaluate observed A/B OOS metrics inside each regime (no retrain)."""
     rows: list[dict[str, Any]] = []
-    # Align predictions to frame keys
+    # Align predictions to frame keys. Prefer regime columns already on preds
+    # (walk-forward OOS frames carry MODEL_A columns); only merge from ``frame``
+    # when missing — avoid pandas ``_x/_y`` suffix collisions.
     key = ["symbol", "date"]
-    fa = preds_a.merge(
-        frame[key + [c for c in ("spy_px_vs_sma200", "vix_lag1_pct_252") if c in frame.columns]],
-        on=key,
-        how="left",
-    )
-    fb = preds_b.merge(
-        frame[key + [c for c in ("spy_px_vs_sma200", "vix_lag1_pct_252") if c in frame.columns]],
-        on=key,
-        how="left",
-    )
+    regime_cols = [
+        c for c in ("spy_px_vs_sma200", "vix_lag1_pct_252") if c in frame.columns
+    ]
+
+    def _with_regime_cols(preds: pd.DataFrame) -> pd.DataFrame:
+        out = preds.copy()
+        out["date"] = pd.to_datetime(out["date"]).dt.date
+        need = [c for c in regime_cols if c not in out.columns]
+        if not need:
+            return out
+        fr = frame.loc[:, key + need].copy()
+        fr["date"] = pd.to_datetime(fr["date"]).dt.date
+        return out.merge(fr, on=key, how="left")
+
+    fa = _with_regime_cols(preds_a)
+    fb = _with_regime_cols(preds_b)
     masks = regime_masks(fa)
     for name, mask in masks.items():
         if mask.sum() < 20:

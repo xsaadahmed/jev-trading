@@ -365,7 +365,11 @@ def robustness_cmd(
     budget_usd: float = typer.Option(25.0, help="USD budget cap for P6 live path."),
 ) -> None:
     """Phase 10: placebo P1-P6 + robustness suite. Writes data-only robustness_report/."""
-    from jevlab.cv.walkforward import make_folds
+    import numpy as np
+
+    from jevlab.backtest.ledger import run_ledger
+    from jevlab.cv.walkforward import OOS_END, OOS_START, make_folds
+    from jevlab.evaluation.metrics import compute_economic_metrics
     from jevlab.evaluation.placebo import (
         run_p5_projection,
         run_placebo_loop,
@@ -376,8 +380,9 @@ def robustness_cmd(
     from jevlab.experiments.manifest import insert_trial_ledger
     from jevlab.experiments.runner import _join_jev_features
     from jevlab.jev.audit import run_p6_state_shuffle
-    from jevlab.models.column_sets import column_set_registry
-    from jevlab.models.controls import ensure_placebo_columns
+    from jevlab.models.column_sets import ColumnSetSpec, column_set_registry
+    from jevlab.models.controls import ensure_placebo_columns, fill_placebo_jev_columns
+    from jevlab.models.metrics import summarize_oos
     from jevlab.models.pipelines import prepare_model_frame, run_column_set_logistic
 
     configure_logging()
@@ -533,6 +538,83 @@ def robustness_cmd(
         qset_version=configs.jev.qset_version,
         state_schema_version=configs.jev.state_schema_version,
     )
+    # Model F: fill placebo_j_* columns (P4-matched noise into dedicated slots)
+    # and score once for the Phase 10 control table.
+    typer.echo("running Model F (placebo Jev columns) ...")
+    frame_f = fill_placebo_jev_columns(frame, seed=seed)
+    spec_f = registry["F"]
+    spec_f_run = ColumnSetSpec(
+        model_id="F",
+        columns=spec_f.columns,
+        learner=spec_f.learner,
+        purpose=spec_f.purpose,
+        n_columns=spec_f.n_columns,
+        logit_columns=spec_f.logit_columns,
+        interface_only=False,
+        notes=spec_f.notes,
+    )
+    # prepare_model_frame already ran; ensure placebo cols are on the modeling frame.
+    for col in spec_f_run.columns:
+        if col.startswith("placebo_") and col in frame_f.columns:
+            frame[col] = frame_f[col].to_numpy()
+    wf_f = run_column_set_logistic(
+        frame,
+        folds,
+        spec_f_run,
+        sessions=sessions,
+        C_grid=C_grid,
+        seed=seed,
+        embargo_sessions=embargo,
+    )
+    f_pred_path = out_dir / "oos_F.parquet"
+    wf_f.predictions.to_parquet(f_pred_path, index=False)
+    f_metrics = summarize_oos(wf_f.predictions)
+    f_econ: dict[str, Any] = {}
+    if not bars.empty:
+        scores_f = wf_f.predictions.copy()
+        if "score" not in scores_f.columns and "prob" in scores_f.columns:
+            scores_f["score"] = scores_f["prob"]
+        phase_rows = []
+        for phase in configs.strategy.phases:
+            led = run_ledger(
+                bars,
+                scores_f,
+                cost=cost,
+                risk_config=configs.risk,
+                initial_capital_usd=configs.backtest.initial_capital_usd,
+                top_k=configs.strategy.top_k,
+                phase=int(phase),
+                apply_risk=True,
+                enable_drawdown_kill=False,
+            )
+            m = compute_economic_metrics(
+                led.equity_curve,
+                led.trades,
+                initial_capital_usd=configs.backtest.initial_capital_usd,
+                metric_start=OOS_START,
+                metric_end=OOS_END,
+            ).to_dict()
+            phase_rows.append(m)
+        f_econ = {
+            "cagr": float(np.mean([r["cagr_dec"] for r in phase_rows])),
+            "sharpe": float(np.mean([r["sharpe"] for r in phase_rows])),
+            "max_dd": float(np.mean([r["max_drawdown_dec"] for r in phase_rows])),
+            "exposure": float(np.mean([r["exposure"] for r in phase_rows])),
+            "trades": float(np.mean([r["trade_count"] for r in phase_rows])),
+        }
+    from jevlab.evaluation.placebo import delta_log_loss_gain as _dllg
+
+    placebo_payload["Model_F"] = {
+        "construction": "A + 8 AR(1)-matched-noise placebo_j_* columns (P4 family; dedicated slots)",
+        "n_columns": 25,
+        "n_oos_rows": f_metrics.get("n_rows"),
+        "metrics": f_metrics,
+        "economic_normal_mean_phases": f_econ,
+        "delta_log_loss_gain_vs_A": _dllg(preds_a, wf_f.predictions),
+        "delta_log_loss_gain_vs_B": _dllg(preds_b, wf_f.predictions),
+        "contamination_label": CONTAMINATION_LABEL,
+        "oos_path": str(f_pred_path),
+    }
     write_placebo_results(placebo_payload, out_dir)
 
     typer.echo("running robustness suite ...")

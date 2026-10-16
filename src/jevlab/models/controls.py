@@ -47,6 +47,27 @@ def ensure_placebo_columns(frame: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def fill_placebo_jev_columns(
+    frame: pd.DataFrame,
+    *,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Fill Model F's eight ``placebo_j_*`` slots with AR(1)-matched noise.
+
+    Matches each real Jev column's per-asset autocorrelation (same construction
+    as placebo P4), written into the dedicated placebo column names so Model F
+    = A + 8 placebo features without mutating the real Jev columns used by B.
+    """
+    from jevlab.evaluation.placebo import ar1_matched_noise
+    from jevlab.jev.parse import JEV_FEATURE_COLUMNS
+
+    out = ensure_placebo_columns(frame)
+    noisy = ar1_matched_noise(out, columns=JEV_FEATURE_COLUMNS, seed=seed)
+    for real, placebo in zip(JEV_FEATURE_COLUMNS, PLACEBO_JEV_COLUMNS, strict=True):
+        out[placebo] = noisy[real].to_numpy()
+    return out
+
+
 def _sanitize_token(text: str) -> str:
     return text.lower().replace(" ", "_").replace("-", "_").replace("/", "_").replace(".", "_")
 

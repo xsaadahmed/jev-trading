@@ -7,7 +7,9 @@ Empirical p = (1 + #{placebo >= observed}) / (1 + N). P5 and P6 are single runs.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from datetime import date
 from pathlib import Path
@@ -38,6 +40,76 @@ from jevlab.utils.logging import get_logger
 
 log = get_logger(__name__)
 
+# Process-pool state for Windows-spawn workers (set by initializer).
+_POOL_FRAME: pd.DataFrame | None = None
+_POOL_PREDS_A: pd.DataFrame | None = None
+_POOL_BARS: pd.DataFrame | None = None
+_POOL_COST: CostModel | None = None
+_POOL_RISK: RiskConfig | None = None
+
+
+def _pool_init(
+    frame: pd.DataFrame,
+    preds_a: pd.DataFrame,
+    bars: pd.DataFrame | None,
+    cost: CostModel | None,
+    risk_config: RiskConfig | None,
+) -> None:
+    global _POOL_FRAME, _POOL_PREDS_A, _POOL_BARS, _POOL_COST, _POOL_RISK
+    _POOL_FRAME = frame
+    _POOL_PREDS_A = preds_a
+    _POOL_BARS = bars
+    _POOL_COST = cost
+    _POOL_RISK = risk_config
+
+
+def _placebo_draw_task(
+    kind: PlaceboId,
+    draw_i: int,
+    seed: int,
+    folds: list[Fold],
+    sessions: list[date],
+    C_grid: list[float],
+    embargo_sessions: int,
+    compute_sharpe: bool,
+    top_k: int,
+    phase: int,
+    sharpe_a: float | None,
+) -> tuple[int, float, float | None]:
+    """One placebo draw for process-pool execution. Returns (i, ll_gain, d_sharpe)."""
+    assert _POOL_FRAME is not None and _POOL_PREDS_A is not None
+    transform = _transform_dispatch(kind)
+    draw_seed = _draw_seed(kind, seed, draw_i)
+    placebo_frame = transform(_POOL_FRAME, draw_seed)
+    preds_b = train_b_oos(
+        placebo_frame,
+        folds,
+        sessions=sessions,
+        C_grid=C_grid,
+        seed=seed,
+        embargo_sessions=embargo_sessions,
+    )
+    ll_gain = delta_log_loss_gain(_POOL_PREDS_A, preds_b)
+    d_sh: float | None = None
+    if (
+        compute_sharpe
+        and sharpe_a is not None
+        and _POOL_BARS is not None
+        and _POOL_COST is not None
+        and _POOL_RISK is not None
+    ):
+        res_pb = run_fast(
+            _POOL_BARS,
+            preds_b,
+            cost=_POOL_COST,
+            risk_config=_POOL_RISK,
+            top_k=top_k,
+            phase=phase,
+            apply_risk=False,
+        )
+        d_sh = sharpe_from_equity(res_pb.equity_curve) - float(sharpe_a)
+    return draw_i, ll_gain, d_sh
+
 PlaceboId = Literal["P1", "P2", "P3", "P4", "P5", "P6"]
 
 PLACEBO_N: dict[PlaceboId, int] = {
@@ -48,6 +120,13 @@ PLACEBO_N: dict[PlaceboId, int] = {
     "P5": 1,
     "P6": 1,
 }
+
+# Stable per-kind salts (avoid Python's randomized hash() across processes).
+_KIND_SALT: dict[str, int] = {"P1": 1103, "P2": 2207, "P3": 3319, "P4": 4421}
+
+
+def _draw_seed(kind: str, seed: int, draw_i: int) -> int:
+    return int(seed + 17 * draw_i + _KIND_SALT[kind])
 
 MIN_CIRCULAR_LAG: int = 60
 CONTAMINATION_LABEL: str = "potentially_training_contaminated"
@@ -302,14 +381,18 @@ def run_placebo_loop(
     top_k: int = 3,
     phase: int = 0,
     compute_sharpe: bool = False,
+    n_jobs: int | None = None,
 ) -> PlaceboLoopResult:
-    """Run P1-P4 placebo loop; optional ``run_fast`` Sharpe deltas when bars provided."""
+    """Run P1-P4 placebo loop; optional ``run_fast`` Sharpe deltas when bars provided.
+
+    Draws are embarrassingly parallel. ``n_jobs`` defaults to ``min(8, cpu-1)``.
+    Seeds and transforms are unchanged vs the serial loop (same draw_seed formula).
+    """
     if kind not in {"P1", "P2", "P3", "P4"}:
         raise ValueError(f"run_placebo_loop supports P1-P4 only; got {kind}")
     n_draws = int(PLACEBO_N[kind] if n is None else n)
     if n_draws < 1:
         raise ValueError("n must be >= 1")
-    transform = _transform_dispatch(kind)
     preds_b_obs = train_b_oos(
         frame,
         folds,
@@ -320,6 +403,7 @@ def run_placebo_loop(
     )
     observed_ll = delta_log_loss_gain(preds_a, preds_b_obs)
     observed_sh: float | None = None
+    sharpe_a: float | None = None
     if compute_sharpe and bars is not None and cost is not None and risk_config is not None:
         res_a = run_fast(
             bars,
@@ -339,54 +423,84 @@ def run_placebo_loop(
             phase=phase,
             apply_risk=False,
         )
-        observed_sh = sharpe_from_equity(res_b.equity_curve) - sharpe_from_equity(
-            res_a.equity_curve
-        )
+        sharpe_a = sharpe_from_equity(res_a.equity_curve)
+        observed_sh = sharpe_from_equity(res_b.equity_curve) - sharpe_a
 
-    gains: list[float] = []
-    sharpes: list[float] = []
-    for i in range(n_draws):
-        draw_seed = int(seed + 17 * i + hash(kind) % 10_000)
-        placebo_frame = transform(frame, draw_seed)
-        preds_b = train_b_oos(
-            placebo_frame,
-            folds,
-            sessions=sessions,
-            C_grid=C_grid,
-            seed=seed,
-            embargo_sessions=embargo_sessions,
-        )
-        gains.append(delta_log_loss_gain(preds_a, preds_b))
-        if (
-            compute_sharpe
-            and bars is not None
-            and cost is not None
-            and risk_config is not None
-            and observed_sh is not None
-        ):
-            res_pb = run_fast(
-                bars,
-                preds_b,
-                cost=cost,
-                risk_config=risk_config,
-                top_k=top_k,
-                phase=phase,
-                apply_risk=False,
+    cpu = os.cpu_count() or 1
+    jobs = 1 if n_jobs == 1 else int(n_jobs if n_jobs is not None else max(1, min(8, cpu - 1)))
+    # Serial path for tiny n or explicit n_jobs=1 (tests / debugging).
+    if jobs <= 1 or n_draws < 4:
+        transform = _transform_dispatch(kind)
+        gains: list[float] = []
+        sharpes: list[float] = []
+        for i in range(n_draws):
+            draw_seed = _draw_seed(kind, seed, i)
+            placebo_frame = transform(frame, draw_seed)
+            preds_b = train_b_oos(
+                placebo_frame,
+                folds,
+                sessions=sessions,
+                C_grid=C_grid,
+                seed=seed,
+                embargo_sessions=embargo_sessions,
             )
-            res_a = run_fast(
-                bars,
-                preds_a,
-                cost=cost,
-                risk_config=risk_config,
-                top_k=top_k,
-                phase=phase,
-                apply_risk=False,
-            )
-            sharpes.append(
-                sharpe_from_equity(res_pb.equity_curve) - sharpe_from_equity(res_a.equity_curve)
-            )
-        if (i + 1) % 50 == 0 or i == 0:
-            log.info("placebo.progress", kind=kind, draw=i + 1, n=n_draws)
+            gains.append(delta_log_loss_gain(preds_a, preds_b))
+            if (
+                compute_sharpe
+                and bars is not None
+                and cost is not None
+                and risk_config is not None
+                and sharpe_a is not None
+            ):
+                res_pb = run_fast(
+                    bars,
+                    preds_b,
+                    cost=cost,
+                    risk_config=risk_config,
+                    top_k=top_k,
+                    phase=phase,
+                    apply_risk=False,
+                )
+                sharpes.append(sharpe_from_equity(res_pb.equity_curve) - sharpe_a)
+            if (i + 1) % 50 == 0 or i == 0:
+                log.info("placebo.progress", kind=kind, draw=i + 1, n=n_draws)
+    else:
+        log.info("placebo.parallel", kind=kind, n=n_draws, n_jobs=jobs)
+        gains_by_i: dict[int, float] = {}
+        sharpes_by_i: dict[int, float] = {}
+        done = 0
+        with ProcessPoolExecutor(
+            max_workers=jobs,
+            initializer=_pool_init,
+            initargs=(frame, preds_a, bars if compute_sharpe else None, cost, risk_config),
+        ) as ex:
+            futs = [
+                ex.submit(
+                    _placebo_draw_task,
+                    kind,
+                    i,
+                    seed,
+                    folds,
+                    sessions,
+                    C_grid,
+                    embargo_sessions,
+                    compute_sharpe,
+                    top_k,
+                    phase,
+                    sharpe_a,
+                )
+                for i in range(n_draws)
+            ]
+            for fut in as_completed(futs):
+                i, ll_gain, d_sh = fut.result()
+                gains_by_i[i] = ll_gain
+                if d_sh is not None:
+                    sharpes_by_i[i] = d_sh
+                done += 1
+                if done % 50 == 0 or done == 1 or done == n_draws:
+                    log.info("placebo.progress", kind=kind, draw=done, n=n_draws)
+        gains = [gains_by_i[i] for i in range(n_draws)]
+        sharpes = [sharpes_by_i[i] for i in range(n_draws) if i in sharpes_by_i]
 
     p_ll = empirical_pvalue(observed_ll, gains)
     p_sh = empirical_pvalue(observed_sh, sharpes) if sharpes and observed_sh is not None else None
