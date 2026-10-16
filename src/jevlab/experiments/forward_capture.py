@@ -144,6 +144,15 @@ def resolve_capture_session(
 ) -> tuple[CaptureStatus | None, date | None, str]:
     """Resolve the NYSE session to capture given wall-clock ``now``.
 
+    With an explicit ``session``, refuse holidays and refuse before that
+    session's 18:30 ET decision time.
+
+    With ``session=None`` (scheduler / default ops), return the **latest
+    completed** NYSE session — the most recent session whose decision time
+    is ≤ ``now``. After midnight ET this is yesterday's session, not the
+    incomplete new calendar date. Holidays/weekends fall back to the prior
+    completed session rather than no-op skipping.
+
     Returns ``(early_status, session, message)``. If ``early_status`` is set,
     the caller should return immediately without downloading.
     """
@@ -159,18 +168,19 @@ def resolve_capture_session(
             return "too_early", session, f"before decision_time {dt.isoformat()}"
         return None, session, "ok"
 
+    # Latest completed: walk back from today until decision_time <= now.
     today = now_et.date()
-    if not is_nyse_session(today):
-        return (
-            "skipped_holiday",
-            today,
-            f"{today.isoformat()} is not an NYSE session (holiday/weekend)",
-        )
-
-    dt = decision_time(today)
-    if now_et < dt.to_pydatetime():
-        return "too_early", today, f"before decision_time {dt.isoformat()}"
-    return None, today, "ok"
+    candidate = today if is_nyse_session(today) else previous_nyse_session(today)
+    for _ in range(10):
+        dt = decision_time(candidate)
+        if now_et >= dt.to_pydatetime():
+            return None, candidate, "ok"
+        candidate = previous_nyse_session(candidate)
+    return (
+        "too_early",
+        today,
+        f"no completed NYSE session with decision_time ≤ {now_et.isoformat()}",
+    )
 
 
 def _state_hash(state: Mapping[str, str]) -> str:

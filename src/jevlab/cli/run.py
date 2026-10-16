@@ -270,7 +270,7 @@ def forward_capture_cmd(
 @app.command("lineup")
 def lineup_cmd(
     models: str = typer.Option(
-        "A,B,C,D,E,G",
+        "R0,A,B,C,D,E,G",
         help="Comma-separated model ids (F is interface-only and skipped).",
     ),
     skip_backtests: bool = typer.Option(
@@ -319,6 +319,8 @@ def lineup_cmd(
     ]
 
     model_ids = [m.strip() for m in models.split(",") if m.strip() and m.strip() != "F"]
+    # Frozen strategy phases 0/1/2 (acceptance uses the mean of the three).
+    phases = [int(p) for p in configs.strategy.phases]
     out_dir = paths.reports / "phase8_lineup"
     result = run_model_set(
         features,
@@ -335,7 +337,7 @@ def lineup_cmd(
         risk_config=configs.risk,
         initial_capital_usd=configs.backtest.initial_capital_usd,
         top_k=configs.strategy.top_k,
-        phases=[0],
+        phases=phases,
         model_ids=model_ids,
         qset_version=configs.jev.qset_version,
         state_schema_version=configs.jev.state_schema_version,

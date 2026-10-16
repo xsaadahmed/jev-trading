@@ -234,9 +234,10 @@ def test_holiday_skip() -> None:
     assert session == thanksgiving
     assert "not an NYSE" in msg
 
+    # Default ops on a holiday: capture the latest completed prior session.
     status2, session2, _ = resolve_capture_session(now)
-    assert status2 == "skipped_holiday"
-    assert session2 == thanksgiving
+    assert status2 is None
+    assert session2 == date(2024, 11, 27)
 
 
 def test_too_early_before_decision_time() -> None:
@@ -245,6 +246,14 @@ def test_too_early_before_decision_time() -> None:
     status, day, _ = resolve_capture_session(now, session=session)
     assert status == "too_early"
     assert day == session
+
+
+def test_after_midnight_uses_previous_completed_session() -> None:
+    """Before today's 18:30 ET, default target is the prior completed session."""
+    now = datetime(2026, 10, 16, 0, 17, tzinfo=ET_ZONE)  # Fri after midnight
+    status, session, _ = resolve_capture_session(now)
+    assert status is None
+    assert session == date(2026, 10, 15)  # Thu completed at 18:30 ET
 
 
 # --- capture pipeline ---------------------------------------------------------

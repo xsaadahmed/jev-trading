@@ -14,12 +14,12 @@ decision means only that work may continue; it does **not** clear contamination.
 | Item | Value (fill in) |
 | ---- | --------------- |
 | AUDIT_REPORT path | `reports/audit/AUDIT_REPORT.md` |
-| AUDIT_REPORT hash | `cea1517493c2fad145c6011e77d4efa9248b91159e97e4786f0558ea11083724` |
+| AUDIT_REPORT hash | `9a61efbf882499ac09d833cad4e2289f3fa15ee26f1568414703141d5db42360` (updated after Phase 7 D3; prior Phase 6 hash `cea1517493c2fad145c6011e77d4efa9248b91159e97e4786f0558ea11083724`) |
 | audit_qset version/hash | `audit_qset_v1` / `af199de7394f01b60e2d8bd470badda227bedc6f002c29007f4aab098c59ef9e` |
 | qset_v1 version/hash (if frozen) | frozen `qset_v1` / `497af0695871ffd1250d0050e16d38b23ebbfaeaf748b9f2f00fa59432aaa8a8` |
 | Date range used | sessions ≤ 2023-12-29 only (sealed untouched) |
 | Live calls made? | yes |
-| Diagnostics executed | degeneracy, determinism, D1, D2, D3_deferred, D5, D6 |
+| Diagnostics executed | degeneracy, determinism, D1, D2, D3, D5, D6 |
 
 ## Warnings observed
 

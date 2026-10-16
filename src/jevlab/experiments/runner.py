@@ -46,6 +46,7 @@ from jevlab.models.pipelines import (
     assert_identical_folds,
     prepare_model_frame,
     run_lineup_walkforward,
+    run_r0_walkforward,
 )
 from jevlab.signals.selection import rebalance_dates, select_top_k
 from jevlab.utils.logging import get_logger
@@ -79,12 +80,14 @@ def build_comparison_table(
         spec = registry.get(mid)
         row: dict[str, Any] = {
             "model_id": mid,
-            "n_columns": spec.n_columns if spec else None,
-            "learner": spec.learner if spec else None,
-            "purpose": spec.purpose if spec else None,
+            "n_columns": spec.n_columns if spec else (0 if mid == "R0" else None),
+            "learner": spec.learner if spec else ("rule" if mid == "R0" else None),
+            "purpose": spec.purpose if spec else ("exploratory" if mid == "R0" else None),
             "log_loss": wf.metrics.get("log_loss"),
+            "brier": wf.metrics.get("brier"),
             "auc": wf.metrics.get("auc"),
             "rank_ic": wf.metrics.get("rank_ic"),
+            "ic_tstat": wf.metrics.get("ic_tstat"),
             "n_oos_rows": wf.metrics.get("n_rows"),
             "n_folds_reported": len(wf.fold_report),
             "contamination_label": CONTAMINATION_LABEL,
@@ -94,16 +97,15 @@ def build_comparison_table(
     if backtest_rows:
         bt = pd.DataFrame(backtest_rows)
         if not bt.empty and "model_id" in bt.columns:
-            # Aggregate normal / phase-0 CAGR + Sharpe when present
-            normal = bt.loc[
-                (bt.get("scenario", pd.Series(dtype=str)) == "normal")
-                & (bt.get("phase", pd.Series(dtype=int)) == 0)
-            ]
+            # Aggregate normal-cost metrics as mean over configured phases.
+            normal = bt.loc[bt.get("scenario", pd.Series(dtype=str)) == "normal"]
             if not normal.empty:
                 agg = normal.groupby("model_id", as_index=False).agg(
-                    cagr_dec_normal_p0=("cagr_dec", "mean"),
-                    sharpe_normal_p0=("sharpe", "mean"),
-                    trade_count_normal_p0=("trade_count", "sum"),
+                    cagr_dec_normal=("cagr_dec", "mean"),
+                    sharpe_normal=("sharpe", "mean"),
+                    max_drawdown_dec_normal=("max_drawdown_dec", "mean"),
+                    exposure_normal=("exposure", "mean"),
+                    trade_count_normal=("trade_count", "mean"),
                 )
                 table = table.merge(agg, on="model_id", how="left")
     return table
@@ -239,7 +241,8 @@ def run_model_set(
     # Shared folds for A and B (identical indices by construction).
     assert_identical_folds(folds, folds)
 
-    wanted = list(model_ids) if model_ids is not None else ["A", "B", "C", "D", "E", "G"]
+    wanted = list(model_ids) if model_ids is not None else ["R0", "A", "B", "C", "D", "E", "G"]
+    lineup_ids = [m for m in wanted if m != "R0"]
     results = run_lineup_walkforward(
         frame,
         folds,
@@ -249,8 +252,10 @@ def run_model_set(
         lgbm_params=lgbm_params,
         seed=seed,
         embargo_sessions=embargo_sessions,
-        model_ids=wanted,
+        model_ids=lineup_ids,
     )
+    if "R0" in wanted:
+        results = {"R0": run_r0_walkforward(frame, folds), **results}
 
     # Persist OOS predictions + signals
     reb = rebalance_dates(sessions, every=3, phase=0)
@@ -297,6 +302,7 @@ def run_model_set(
                             "cagr_dec": metrics.get("cagr_dec"),
                             "sharpe": metrics.get("sharpe"),
                             "max_drawdown_dec": metrics.get("max_drawdown_dec"),
+                            "exposure": metrics.get("exposure"),
                             "trade_count": int(metrics.get("trade_count", 0)),
                             "contamination_label": CONTAMINATION_LABEL,
                         }
@@ -308,8 +314,14 @@ def run_model_set(
         comparison_table_markdown(comparison), encoding="utf-8"
     )
 
-    purpose_by_model = {mid: registry[mid].purpose for mid in results}  # type: ignore[index]
+    purpose_by_model = {
+        mid: (registry[mid].purpose if mid in registry else "exploratory")  # type: ignore[index]
+        for mid in results
+    }
     column_counts = {mid: registry[mid].n_columns for mid in registry}  # type: ignore[index]
+    if "R0" in results:
+        column_counts["R0"] = 0
+        purpose_by_model["R0"] = "exploratory"
     metrics_by_model = {mid: wf.metrics for mid, wf in results.items()}
 
     manifest_payload: dict[str, Any] = {
@@ -380,14 +392,20 @@ def run_model_set(
     for mid, wf in results.items():
         if mid in {"A", "B"}:
             continue
-        spec = registry[mid]  # type: ignore[index]
+        if mid == "R0":
+            learner = "rule"
+            n_cols = 0
+        else:
+            spec = registry[mid]  # type: ignore[index]
+            learner = spec.learner
+            n_cols = spec.n_columns
         trial_ids.append(
             insert_trial_ledger(
                 registry_path,
                 purpose="exploratory",
                 feature_set=mid,
-                model_class=spec.learner,
-                grid={"C_grid": C_grid, "seed": seed, "n_columns": spec.n_columns},
+                model_class=learner,
+                grid={"C_grid": C_grid, "seed": seed, "n_columns": n_cols},
                 experiment_id=experiment_id,
                 result_summary=json.dumps(
                     {"metrics": wf.metrics, "contamination_label": CONTAMINATION_LABEL},
