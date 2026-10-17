@@ -76,6 +76,18 @@ def test_unevaluable_gate_is_not_pass() -> None:
     assert c.text == CONCLUSION_UNDERPOWERED
 
 
+def test_not_evaluated_status_is_unevaluable() -> None:
+    c = generate_conclusion(
+        gates={
+            "G4": {"status": "FAIL", "passed": False},
+            "G10": {"status": "NOT EVALUATED", "passed": None},
+        }
+    )
+    assert c.kind == "no_value"
+    assert c.text == CONCLUSION_NO_VALUE
+    assert "gate_failed:G10" not in c.reasons
+
+
 def test_golden_render_full_manifest(tmp_path: Path) -> None:
     manifest = FIXTURES / "phase11_manifest_full.json"
     report = build_report(manifest, out_dir=tmp_path / "phase11_golden")
@@ -106,6 +118,7 @@ def test_golden_render_full_manifest(tmp_path: Path) -> None:
         "Robustness",
         "Statistical uncertainty",
         "Contamination-diagnostics",
+        "Historical gate table",
         "Three-status table",
         "Final conclusion",
     ):
@@ -150,3 +163,27 @@ def test_force_verdict_paths() -> None:
 def test_assert_conclusion_safety_rejects_pass_language_on_failure() -> None:
     with pytest.raises(AssertionError):
         assert_conclusion_safety("All gates passed; HISTORICAL_RESEARCH_PASS", kind="no_value")
+
+
+def test_report_from_manifest_only_no_model_recompute(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reporting layer must not invoke model fitting."""
+
+    def _boom(*_a, **_k):  # pragma: no cover
+        raise AssertionError("reporting must not recompute models")
+
+    monkeypatch.setattr("jevlab.models.pipelines.run_column_set_logistic", _boom, raising=False)
+    monkeypatch.setattr("jevlab.evaluation.placebo.train_b_oos", _boom, raising=False)
+    report = build_report(FIXTURES / "phase11_manifest_minimal.json", out_dir=tmp_path / "m")
+    assert report.conclusion.kind == "no_value"
+
+
+def test_no_sealed_access_in_reporting_layer() -> None:
+    """Phase 11 builder must not call sealed-access APIs."""
+    src = Path(__file__).resolve().parents[2] / "src" / "jevlab" / "reporting" / "build_report.py"
+    text = src.read_text(encoding="utf-8")
+    assert "SEAL_TOKEN" not in text
+    assert "load_sealed" not in text
+    assert "SealedDataGuard" not in text
+    assert "record_sealed" not in text

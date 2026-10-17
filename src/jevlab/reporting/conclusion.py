@@ -44,10 +44,12 @@ def _gate_map(gates: Mapping[str, Any] | None) -> dict[str, bool | None]:
             if not gid:
                 continue
             if "passed" in item:
-                out[gid] = bool(item["passed"])
+                if item["passed"] is None:
+                    out[gid] = None
+                else:
+                    out[gid] = bool(item["passed"])
             elif "status" in item:
-                st = str(item["status"]).lower()
-                out[gid] = st in {"pass", "passed", "ok", "true"}
+                out[gid] = _status_to_passed(str(item["status"]))
             else:
                 out[gid] = None
         return out
@@ -56,10 +58,12 @@ def _gate_map(gates: Mapping[str, Any] | None) -> dict[str, bool | None]:
             out[str(k)] = v
         elif isinstance(v, Mapping):
             if "passed" in v:
-                out[str(k)] = bool(v["passed"])
+                if v["passed"] is None:
+                    out[str(k)] = None
+                else:
+                    out[str(k)] = bool(v["passed"])
             elif "status" in v:
-                st = str(v["status"]).lower()
-                out[str(k)] = st in {"pass", "passed", "ok", "true"}
+                out[str(k)] = _status_to_passed(str(v["status"]))
             else:
                 out[str(k)] = None
         elif v is None:
@@ -67,6 +71,29 @@ def _gate_map(gates: Mapping[str, Any] | None) -> dict[str, bool | None]:
         else:
             out[str(k)] = bool(v)
     return out
+
+
+def _status_to_passed(status: str) -> bool | None:
+    st = status.strip().lower().replace(" ", "_")
+    if st in {"pass", "passed", "ok", "true"}:
+        return True
+    if st in {
+        "fail",
+        "failed",
+        "false",
+        "no",
+    }:
+        return False
+    if st in {
+        "not_evaluated",
+        "n/a",
+        "na",
+        "unevaluable",
+        "skipped",
+        "deferred",
+    }:
+        return None
+    return None
 
 
 def generate_conclusion(

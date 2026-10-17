@@ -1,91 +1,58 @@
-# Phase 11 Report — Reporting
+# Phase 11 Report — Final historical research report
 
-**Date:** 2026-10-08  
+**Date:** 2026-10-17  
 **Status:** Complete  
-**Spec:** MASTER_SPEC §§16, 16.4, 21 Phase 11, 21A  
-**Preserved:** Phases 0–10, 13A
+**Spec:** MASTER_SPEC §§16, 16.4, 21 Phase 11  
+**Verdict:** `Jev does not demonstrate useful predictive value.`
 
 ---
 
-## What was built
+## What was done
 
-### `reporting/build_report.py`
+1. Assembled a **manifest-only** experiment payload from existing Phase 8/9/10 artifacts (`scripts/assemble_phase11_manifest.py`).
+2. Built canonical **HTML + Markdown** via `jev report build` / `build_report` (no model recomputation in the reporting layer).
+3. Evaluated G1–G10 from completed non-sealed evidence; **did not open 2024–2025**; **did not run Phase 12**; **did not create** `HISTORICAL_ACCEPTANCE.json`.
 
-Builds **HTML + Markdown** from an experiment **manifest only** (no recomputation). Optional sibling artifacts may be referenced by `*_path` keys.
-
-Sections (missing optionals → placeholder, report still builds):
-
-1. Strategy definition  
-2. Dataset and splits (sealed / interim / forward / walk-forward + contamination status)  
-3. Feature definitions  
-4. Jev question definitions (exact text + hash)  
-5. Equity and drawdown curves  
-6. Monthly return table  
-7. Trade distribution  
-8. Baseline comparison  
-9. Jev comparison  
-10. Calibration / reliability  
-11. Placebo histograms (observed marked)  
-12. Cost sensitivity  
-13. Robustness (data only)  
-14. Statistical uncertainty + power statement  
-15. Contamination-diagnostics summary (each labeled **warning signal, not proof**)  
-16. Three-status table (`HISTORICAL_RESEARCH_PASS` / `TINY_LIVE_READY` / `SCALE_READY` + digests)  
-17. Final conclusion  
-
-### `reporting/conclusion.py`
-
-Rule-based verdicts (exact strings when required):
-
-| Kind | Text |
-| ---- | ---- |
-| `no_value` | `Jev does not demonstrate useful predictive value.` |
-| `underpowered` | `Inconclusive: study underpowered.` |
-| `pass` | Continues under `HISTORICAL_RESEARCH_PASS` constraints; does **not** claim an uncontaminated edge or authorize live capital alone |
-
-Never emits pass language when any gate fails. Never implies live $10 trading is evidence of an edge.
-
-### `reporting/statements.py` / `plots.py` / `templates/report.html.j2`
-
-§16.4 mandatory banners in every report; Plotly HTML snippets for equity, placebo, reliability, trades.
-
-### CLI
-
-```bash
-jev report build path/to/manifest.json
-jev report build path/to/manifest.json --out-dir reports/<exp>/
-```
+Output: `reports/phase11_final/` (`manifest.json`, `report.html`, `report.md`, digests).
 
 ---
 
-## Sample output
+## Gate outcomes (summary)
 
-`reports/phase11_golden/` from `tests/fixtures/phase11_manifest_full.json`.
+| Gate | Status |
+| ---- | ------ |
+| G1 | PASS |
+| G2 | NOT EVALUATED (no full reproduce artifact) |
+| G3 | PASS |
+| G4 | FAIL |
+| G5 | FAIL |
+| G6 | FAIL |
+| G7 | FAIL |
+| G8 | FAIL |
+| G9 | PASS |
+| G10 | NOT EVALUATED — sealed holdout intentionally unopened |
+
+---
+
+## Statuses
+
+- `HISTORICAL_RESEARCH_PASS`: **NO**
+- `TINY_LIVE_READY`: **NO** (blocked by missing HISTORICAL_ACCEPTANCE)
+- `SCALE_READY`: **NO**
+
+---
+
+## Integrity
+
+- Frozen qset hash unchanged
+- `prereg-v1` / `qset-v1-frozen` unchanged
+- Phase 9 digest unchanged
+- Phase 10 digests unchanged
+- `sealed_access_log = 0`
+- No Phase 12 execution
 
 ---
 
 ## Tests
 
-`tests/unit/test_phase11_reporting.py`:
-
-- Golden excerpt render  
-- One test per verdict path (pass / no_value / underpowered / MDE / unevaluable)  
-- Mandatory §16.4 presence  
-- Minimal manifest (missing optional sections) still builds  
-- Safety assert rejects pass language on failure  
-
----
-
-## Checks
-
-```text
-make check  →  ruff + mypy + pytest  (all passed)
-```
-
----
-
-## Decisions
-
-1. Manifest is the sole input; numbers/plots are embedded or path-referenced — never recomputed.  
-2. Pass verdict is a fixed paragraph that cites `HISTORICAL_RESEARCH_PASS` limits and contamination.  
-3. Stop after Phase 11 — no Phase 12 sealed-test work.
+`tests/unit/test_phase11_reporting.py` — golden render, verdict paths, mandatory statements, missing optional sections, manifest-only / no sealed-access checks.

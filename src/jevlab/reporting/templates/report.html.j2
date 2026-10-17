@@ -44,6 +44,9 @@
     <h2>Final conclusion</h2>
     <div class="conclusion">{{ conclusion.text }}</div>
     <p>Verdict kind: <code>{{ conclusion.kind }}</code></p>
+    {% if conclusion_scope %}
+    <p>{{ conclusion_scope }}</p>
+    {% endif %}
     {% if conclusion.reasons %}
     <p>Reasons: {{ conclusion.reasons | join(", ") }}</p>
     {% endif %}

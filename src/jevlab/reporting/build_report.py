@@ -496,6 +496,173 @@ def _section_contamination(manifest: Mapping[str, Any]) -> ReportSection:
     )
 
 
+def _section_gates(manifest: Mapping[str, Any]) -> ReportSection:
+    gates = manifest.get("gates") or []
+    rows_in: list[Mapping[str, Any]] = []
+    if isinstance(gates, list):
+        rows_in = [g for g in gates if isinstance(g, Mapping)]
+    elif isinstance(gates, Mapping):
+        for gid, body in gates.items():
+            if isinstance(body, Mapping):
+                rows_in.append({"id": gid, **body})
+            else:
+                rows_in.append(
+                    {
+                        "id": gid,
+                        "passed": body if isinstance(body, bool) else None,
+                        "status": (
+                            "PASS"
+                            if body is True
+                            else ("FAIL" if body is False else "NOT EVALUATED")
+                        ),
+                    }
+                )
+    if not rows_in:
+        return ReportSection(
+            "gates",
+            "Historical gate table (G1–G10)",
+            missing="Gate table not present in manifest.",
+            markdown="_Gate table not present in manifest._",
+            html="<p class='missing'>Gate table not present in manifest.</p>",
+        )
+    headers = ["gate", "criterion", "threshold", "observed", "status", "evidence"]
+    md_rows: list[list[str]] = []
+    html_rows: list[str] = []
+    for g in rows_in:
+        gid = str(g.get("id") or g.get("gate") or "")
+        status = str(g.get("status") or "")
+        if not status:
+            if g.get("passed") is True:
+                status = "PASS"
+            elif g.get("passed") is False:
+                status = "FAIL"
+            else:
+                status = "NOT EVALUATED"
+        row = [
+            gid,
+            str(g.get("criterion", "")),
+            str(g.get("threshold", "")),
+            str(g.get("observed", g.get("detail", ""))),
+            status,
+            str(g.get("evidence", g.get("artifact", ""))),
+        ]
+        md_rows.append(row)
+        html_rows.append(
+            "<tr>"
+            + "".join(f"<td>{c}</td>" for c in row)
+            + "</tr>"
+        )
+    note = str(
+        manifest.get("gates_note")
+        or (
+            "Any FAIL among G1–G10 blocks HISTORICAL_RESEARCH_PASS. "
+            "G10 NOT EVALUATED means the sealed holdout was intentionally not opened "
+            "because upstream mandatory gates already failed under the preregistered protocol."
+        )
+    )
+    md = _md_table(headers, md_rows) + f"\n\n{note}\n"
+    html = (
+        "<table><tr>"
+        + "".join(f"<th>{h}</th>" for h in headers)
+        + "</tr>"
+        + "".join(html_rows)
+        + f"</table><p>{note}</p>"
+    )
+    return ReportSection("gates", "Historical gate table (G1–G10)", markdown=md, html=html)
+
+
+def _section_sealed_holdout(manifest: Mapping[str, Any]) -> ReportSection:
+    sealed = manifest.get("sealed_holdout") or {}
+    if not sealed:
+        return ReportSection(
+            "sealed_holdout",
+            "2024–2025 sealed holdout",
+            missing="Sealed-holdout block not present in manifest.",
+            markdown="_Sealed-holdout block not present in manifest._",
+            html="<p class='missing'>Sealed-holdout block not present in manifest.</p>",
+        )
+    lines = [
+        "**The 2024–2025 sealed holdout remains unopened.**",
+        "",
+        str(sealed.get("reason", "")),
+        "",
+        f"- sealed_access_log count: `{sealed.get('sealed_access_count', 'n/a')}`",
+        f"- Phase 12 run: `{sealed.get('phase12_run', False)}`",
+        f"- 2024–2025 Jev inference present: `{sealed.get('sealed_jev_inference', False)}`",
+        f"- HISTORICAL_ACCEPTANCE.json present: `{sealed.get('historical_acceptance_present', False)}`",
+    ]
+    html = (
+        "<div class='warning'><strong>The 2024–2025 sealed holdout remains unopened.</strong>"
+        f"<p>{sealed.get('reason', '')}</p>"
+        f"<ul><li>sealed_access_log count: <code>{sealed.get('sealed_access_count', 'n/a')}</code></li>"
+        f"<li>Phase 12 run: <code>{sealed.get('phase12_run', False)}</code></li>"
+        f"<li>2024–2025 Jev inference present: <code>{sealed.get('sealed_jev_inference', False)}</code></li>"
+        f"<li>HISTORICAL_ACCEPTANCE.json present: "
+        f"<code>{sealed.get('historical_acceptance_present', False)}</code></li></ul></div>"
+    )
+    return ReportSection(
+        "sealed_holdout",
+        "2024–2025 sealed holdout",
+        markdown="\n".join(lines),
+        html=html,
+    )
+
+
+def _section_phase10(manifest: Mapping[str, Any]) -> ReportSection:
+    p10 = manifest.get("phase10_interpretation") or {}
+    if not p10:
+        return ReportSection(
+            "phase10",
+            "Phase 10 interpretation",
+            missing="Phase 10 interpretation not present in manifest.",
+            markdown="_Phase 10 interpretation not present in manifest._",
+            html="<p class='missing'>Phase 10 interpretation not present in manifest.</p>",
+        )
+    bullets = p10.get("bullets") or []
+    lines = [str(p10.get("summary", "")), ""]
+    for b in bullets:
+        lines.append(f"- {b}")
+    html = "<p>" + str(p10.get("summary", "")) + "</p><ul>"
+    html += "".join(f"<li>{b}</li>" for b in bullets) + "</ul>"
+    return ReportSection(
+        "phase10",
+        "Phase 10 interpretation",
+        markdown="\n".join(lines),
+        html=html,
+    )
+
+
+def _section_forward(manifest: Mapping[str, Any]) -> ReportSection:
+    fwd = manifest.get("forward_capture") or {}
+    if not fwd:
+        return ReportSection(
+            "forward",
+            "Forward capture (Phase 13A)",
+            missing="Forward-capture block not present in manifest.",
+            markdown="_Forward-capture block not present in manifest._",
+            html="<p class='missing'>Forward-capture block not present in manifest.</p>",
+        )
+    lines = [
+        "Existing Phase 13A forward-capture state (inputs only; no outcome scoring):",
+        "",
+        f"- deployment_timestamp: `{fwd.get('deployment_timestamp', '')}`",
+        f"- FORWARD_START_DATE: `{fwd.get('FORWARD_START_DATE', fwd.get('forward_start_date', ''))}`",
+        f"- note: {fwd.get('note', 'Forward capture does not grant acceptance status.')}",
+    ]
+    html = (
+        "<p>Existing Phase 13A forward-capture state (inputs only; no outcome scoring).</p><ul>"
+        f"<li>deployment_timestamp: <code>{fwd.get('deployment_timestamp', '')}</code></li>"
+        f"<li>FORWARD_START_DATE: <code>{fwd.get('FORWARD_START_DATE', fwd.get('forward_start_date', ''))}</code></li>"
+        f"<li>{fwd.get('note', 'Forward capture does not grant acceptance status.')}</li></ul>"
+    )
+    return ReportSection(
+        "forward",
+        "Forward capture (Phase 13A)",
+        markdown="\n".join(lines),
+        html=html,
+    )
+
+
 def _section_status_table(manifest: Mapping[str, Any]) -> ReportSection:
     statuses = manifest.get("acceptance_statuses") or {}
     rows_spec = [
@@ -510,23 +677,27 @@ def _section_status_table(manifest: Mapping[str, Any]) -> ReportSection:
         present = block.get("present")
         digest = block.get("integrity_digest") or block.get("digest") or ""
         path = block.get("path") or ""
+        note = str(block.get("note") or ("YES" if present else "NO"))
         if present is None:
             present = bool(digest) or bool(path)
         md_rows.append(
             [
                 status,
-                "present" if present else "absent",
+                "YES" if present else "NO",
+                note,
                 str(digest)[:16] + ("…" if digest else ""),
                 path or default_file,
             ]
         )
         html_rows.append(
-            f"<tr><td>{status}</td><td>{'present' if present else 'absent'}</td>"
+            f"<tr><td>{status}</td><td>{'YES' if present else 'NO'}</td>"
+            f"<td>{note}</td>"
             f"<td><code>{digest}</code></td><td><code>{path or default_file}</code></td></tr>"
         )
-    md = _md_table(["status", "artifact", "integrity_digest", "path"], md_rows)
+    md = _md_table(["status", "granted", "note", "integrity_digest", "path"], md_rows)
     html = (
-        "<table><tr><th>status</th><th>artifact</th><th>integrity_digest</th><th>path</th></tr>"
+        "<table><tr><th>status</th><th>granted</th><th>note</th>"
+        "<th>integrity_digest</th><th>path</th></tr>"
         + "".join(html_rows)
         + "</table>"
         + f"<p>{LIVE_EXECUTION_EXPERIMENT}</p>"
@@ -554,14 +725,18 @@ def build_report_sections(manifest: Mapping[str, Any]) -> list[ReportSection]:
         _section_equity(manifest),
         _section_monthly(manifest),
         _section_trades(manifest),
-        _section_comparison(manifest, key="baseline_comparison", title="Baseline comparison"),
-        _section_comparison(manifest, key="jev_comparison", title="Jev comparison"),
+        _section_comparison(manifest, key="baseline_comparison", title="Baseline comparison (Model A)"),
+        _section_comparison(manifest, key="jev_comparison", title="Jev comparison (Model B)"),
         _section_calibration(manifest),
         _section_placebo(manifest),
         _section_cost(manifest),
         _section_robustness(manifest),
+        _section_phase10(manifest),
         _section_stats(manifest),
         _section_contamination(manifest),
+        _section_gates(manifest),
+        _section_sealed_holdout(manifest),
+        _section_forward(manifest),
         _section_status_table(manifest),
     ]
 
@@ -571,7 +746,9 @@ def render_markdown(
     experiment_id: str,
     sections: list[ReportSection],
     conclusion: ConclusionResult,
+    manifest: Mapping[str, Any] | None = None,
 ) -> str:
+    manifest = manifest or {}
     lines = [
         f"# Experiment report: {experiment_id}",
         "",
@@ -595,6 +772,18 @@ def render_markdown(
         if sec.markdown:
             lines.append(sec.markdown)
             lines.append("")
+    scope = str(
+        manifest.get("conclusion_scope")
+        or (
+            "This conclusion applies to the frozen study (universe, qset, state representation, "
+            "model setup, target, and evaluation protocol). It means the preregistered study did "
+            "not demonstrate incremental predictive or economic value from the frozen Jev features "
+            "over Model A. It does not mean Jev is universally useless, that no different "
+            "preregistered study could ever differ, or that training contamination was proven or "
+            "disproven. Any future changed qset, features, target, universe, model, or strategy "
+            "must be a NEW preregistered study, not a continuation or tuning of this failed one."
+        )
+    )
     lines.extend(
         [
             "## Final conclusion",
@@ -602,6 +791,8 @@ def render_markdown(
             conclusion.text,
             "",
             f"Verdict kind: `{conclusion.kind}`",
+            "",
+            scope,
             "",
         ]
     )
@@ -616,7 +807,21 @@ def render_html(
     experiment_id: str,
     sections: list[ReportSection],
     conclusion: ConclusionResult,
+    manifest: Mapping[str, Any] | None = None,
 ) -> str:
+    manifest = manifest or {}
+    scope = str(
+        manifest.get("conclusion_scope")
+        or (
+            "This conclusion applies to the frozen study (universe, qset, state representation, "
+            "model setup, target, and evaluation protocol). It means the preregistered study did "
+            "not demonstrate incremental predictive or economic value from the frozen Jev features "
+            "over Model A. It does not mean Jev is universally useless, that no different "
+            "preregistered study could ever differ, or that training contamination was proven or "
+            "disproven. Any future changed qset, features, target, universe, model, or strategy "
+            "must be a NEW preregistered study, not a continuation or tuning of this failed one."
+        )
+    )
     env = Environment(
         loader=FileSystemLoader(str(TEMPLATES_DIR)),
         autoescape=select_autoescape(enabled_extensions=("html", "j2")),
@@ -638,6 +843,7 @@ def render_html(
             for s in sections
         ],
         conclusion=conclusion.to_dict(),
+        conclusion_scope=scope,
     )
 
 
@@ -660,8 +866,18 @@ def build_report(
         force_kind=force_kind,
     )
     sections = build_report_sections(data)
-    md = render_markdown(experiment_id=experiment_id, sections=sections, conclusion=conclusion)
-    html = render_html(experiment_id=experiment_id, sections=sections, conclusion=conclusion)
+    md = render_markdown(
+        experiment_id=experiment_id,
+        sections=sections,
+        conclusion=conclusion,
+        manifest=data,
+    )
+    html = render_html(
+        experiment_id=experiment_id,
+        sections=sections,
+        conclusion=conclusion,
+        manifest=data,
+    )
     missing = assert_mandatory_present(md)
     if missing:
         raise RuntimeError(f"report missing mandatory statements: {missing}")
