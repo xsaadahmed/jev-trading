@@ -1,0 +1,99 @@
+{
+  "study_id": "V1",
+  "study_version": "V1",
+  "status": "ARCHIVED_CLOSED",
+  "final_conclusion": "Jev does not demonstrate useful predictive value.",
+  "archived_at_utc": "2026-10-17T07:30:00+00:00",
+  "final_git_commit": "7bef0e5d75a1a09f5426509aa3b7e1d97b95c76f",
+  "archival_note_commit": null,
+  "frozen_tags": {
+    "prereg-v1": "eb1a1ad27dcd67df298fb96eb14c7f3dee843137",
+    "qset-v1-frozen": "eb1a1ad27dcd67df298fb96eb14c7f3dee843137",
+    "v1-study-complete": null
+  },
+  "qset": {
+    "qset_version": "qset_v1",
+    "qset_hash": "497af0695871ffd1250d0050e16d38b23ebbfaeaf748b9f2f00fa59432aaa8a8"
+  },
+  "jev_model": {
+    "requested": "jev-1.13.0",
+    "resolved": "jev-1.13.0"
+  },
+  "integrity_digests": {
+    "phase6_audit_report_sha256": "cea1517493c2fad145c6011e77d4efa9248b91159e97e4786f0558ea11083724",
+    "phase6_audit_report_sha256_note": "Phase 6 AUDIT_REPORT hash recorded at preregistration / contamination disposition (prior to Phase 7 D3 update).",
+    "audit_report_md_sha256_at_archive": "fd9827c672fbd61719b8ee3c969a7b75c61b0c000aa444d6159edfce677aa405",
+    "phase7_jev_features_logical_content_sha256": "3c0993f7ce447233a9484697376286777d57d23703080c1913321af266a9a848",
+    "phase7_jev_features_logical_schema_sha256": "7d680c7e2df8b09d4889aadc9a2c6a598f1b088997d8e050e9bddfc9bd560084",
+    "phase9_stats_content_digest": "ead17efd2fb2568fe50d517dca363d0ec9d7ebc1152a46bbba699db2d28ec20f",
+    "phase10_placebo_digest": "1427c2b3f81cdcb7f94dbcaa7f9ca64110527d25f558a7593cf156687a815edc",
+    "phase10_robustness_digest": "b33201aa311044c09184bff6ae8ff01b81061560d1584aa3d6f9ab69029520f2",
+    "phase11_html_digest": "0a862ba069213ecad1b5436700269be36459dfd8a62d20e94fa82d5e200a57bd",
+    "phase11_markdown_digest": "cfd24ff2feccd3368f59412de7aa575d1b60d3de8e46e5884540a1e4210fef5a",
+    "phase11_manifest_digest": "c4a8cdab73945fccbe4a5f45653bd991a04f99ec0df97c3a6a0c660155026507"
+  },
+  "contamination_disposition": {
+    "decision": "proceed_with_caveats",
+    "reviewer": "Saad Ahmed",
+    "date": "2026-10-14",
+    "path": "docs/contamination_disposition.md",
+    "label": "potentially_training_contaminated",
+    "diagnostics_are": "warning signal, not proof"
+  },
+  "forward_capture": {
+    "scheduler_task": "jevlab-forward-capture",
+    "scheduler_state": "Disabled",
+    "deployment_timestamp": "2026-10-16T04:20:04.946315+00:00",
+    "FORWARD_START_DATE": "2026-10-16",
+    "registry_id": "965b44ce36fa4d8e901c8116022c16d1",
+    "registry_git_commit": "eb1a1ad27dcd67df298fb96eb14c7f3dee843137",
+    "captured_sessions": [
+      {
+        "session_date": "2026-10-15",
+        "status": "complete",
+        "role": "shadow_only_before_FORWARD_START_DATE",
+        "n_symbols": 13,
+        "n_jev_ok": 13,
+        "n_jev_failed": 0,
+        "model_resolved": "jev-1.13.0"
+      },
+      {
+        "session_date": "2026-10-16",
+        "status": "complete",
+        "role": "clean_forward_on_or_after_FORWARD_START_DATE",
+        "n_symbols": 13,
+        "n_jev_ok": 13,
+        "n_jev_failed": 0,
+        "model_resolved": "jev-1.13.0"
+      }
+    ],
+    "n_captured_sessions": 2,
+    "n_complete_jev_rows": 26,
+    "n_incomplete_or_error_sessions": 0,
+    "last_captured_session": "2026-10-16",
+    "outcomes_scored": false,
+    "preserved": true,
+    "reuse_forbidden_for_future_changed_studies": true
+  },
+  "sealed_holdout": {
+    "range": "2024-01-02..2025-12-31",
+    "status": "unopened",
+    "sealed_access_log_count": 0,
+    "phase12_run": false,
+    "historical_acceptance_json": "absent",
+    "archival_note": "2024–2025 remains unopened and may only be used by a separately preregistered future study or other explicitly defined one-shot evaluation."
+  },
+  "acceptance_statuses": {
+    "HISTORICAL_RESEARCH_PASS": "NO",
+    "HISTORICAL_ACCEPTANCE.json": "absent",
+    "TINY_LIVE_READY": "NO",
+    "SCALE_READY": "NO"
+  },
+  "protocol": {
+    "phase12_forbidden": true,
+    "live_trading_forbidden": true,
+    "qset_v1_frozen": true,
+    "prereg_tags_immutable": true,
+    "integrity_digests_not_signatures": true
+  }
+}

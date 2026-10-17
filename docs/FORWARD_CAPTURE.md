@@ -119,6 +119,13 @@ uv run jev run forward-capture
 
 in the repository directory, with the same env vars as local development.
 
+### V1 shutdown (2026-10-17)
+
+The Windows scheduled task **`jevlab-forward-capture`** was set to **Disabled** when V1
+closed (`docs/V1_ARCHIVE.md`). The task definition was retained for audit; it must not be
+re-enabled for V1. Existing `data/forward/` rows and the immutable `forward_registry` entry
+remain preserved. Do not reuse V1 forward observations as evidence for a future changed study.
+
 ## Acceptance (ops)
 
 Phase 13A acceptance target: **10 consecutive clean sessions** captured with
