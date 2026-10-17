@@ -1,0 +1,77 @@
+{
+  "branch": "v2-baseline-validation",
+  "docs": {
+    "known_issues": "docs/V2_KNOWN_ISSUES.md",
+    "master_spec": "docs/V2_MASTER_SPEC.md",
+    "preregistration": "docs/V2_PREREGISTRATION.md"
+  },
+  "forward_enabled_at_freeze": false,
+  "locked": {
+    "base_seed": 15224036858585574915,
+    "child_seed_formula": "(base_seed + draw_id + phase) mod 2**64",
+    "embargo_sessions": 5,
+    "feature_version": "v1",
+    "final_training_decision_date": "2023-12-22",
+    "hard_gates": {
+      "C1": "top5_profitable_roundtrips < 0.25 of P+; no ETF > 0.35 of P+; fail if P+ <= 0",
+      "E1": "p <= 0.05",
+      "E2": "S_A - median(S_r) >= 0.10",
+      "E3": "mean_phase_net_CAGR > 0 at normal costs",
+      "E4": "mean_phase_net_CAGR > 0 at pessimistic costs",
+      "E5": "worst_phase_max_drawdown <= 0.35 at normal costs",
+      "PS1": "at least 2 of 3 phases: Sharpe_A(phase) > median Sharpe_random(phase)",
+      "R1": "mechanics_no_leakage",
+      "Z1": "one_shot_seal_integrity"
+    },
+    "min_sharpe_advantage": 0.1,
+    "model_a_columns": [
+      "ret_1d",
+      "ret_3d",
+      "ret_5d",
+      "ret_20d",
+      "down_streak",
+      "px_vs_sma20",
+      "px_vs_sma50",
+      "px_vs_sma200",
+      "rsi_3",
+      "rsi_14",
+      "rv_pct_252",
+      "vol_ratio_20",
+      "vix_lag1_pct_252",
+      "spy_ret_5d",
+      "spy_px_vs_sma200",
+      "rel_ret_5d",
+      "xs_rank_ret_5d"
+    ],
+    "p_threshold": 0.05,
+    "primary_statistic": "mean_over_phases_annualized_net_sharpe_normal_costs",
+    "random_null_n": 2000,
+    "refit_policy": "fit_once_pre_sealed_no_quarterly_refit",
+    "seed_canonical_string": "v2-baseline-validation-random-null-v1",
+    "t0": "2024-01-02"
+  },
+  "parent_v1_tip": "e5724df4b943006b3f73b4d6333a5177a7b77510",
+  "research_config_hash": "96947d9901b5366246ab1073af7ec17a83cf2bd074ecb0f32f66fcad21a8fe1c",
+  "sealed_execution_authorized_by_this_freeze": false,
+  "section_hashes": {
+    "acceptance_gates": "5e32900f2c16065d98271b8706b528e8e1682601314207085bdc3b34a9bea6be",
+    "candidate": "aa0ff14bfa5fe41d0b0767c97090c0b9df70ea8e687594e5c47deed272a55a28",
+    "costs": "74114006e731780591dd2a0b8ea9110f1261fe99fe9e8bb7231d326b7b529329",
+    "eligibility": "b97cb39dd99e65f9c6ede7a2a34b2e5a2cc55b5dec196117c42f4375c1ece420",
+    "feature_set": "cf4e9dab9b20d33cb5c51ecb5cf4c2bdad3282016afbe34e2a6ce9d94e7ad396",
+    "random_null": "d8661aa1fcaf42ce239865049a9707d41dee2c598faf4de06de7630cfead977e",
+    "strategy": "ce46464d3d33bd20e96c6f429ebad60a991dc284b331f769c457f121ea43b521",
+    "target": "baf60d37d71211e94a2bfeff0027d8a1b4a2e131cf1023e03ce1d289acf35381",
+    "training": "efb523fdec83fcca00c2caea0753188f168f237a8af0f7736af508ef5bccbee4",
+    "universe": "73d3fcff3c0b7df72871e6ab72085c3e4afba998ce1f66e31e06705b36d473fb"
+  },
+  "status": "RESEARCH_DESIGN_FROZEN",
+  "study_id": "V2",
+  "study_name": "baseline-validation",
+  "v1_config_hashes": {
+    "backtest": "c4f6ce7c3cb5007ba7812ca99ae5071c06ad52fed32098b430d50603677ce3d7",
+    "features": "78f29f67d0501d2199ff08c2f76979163e23ecbeb4f76905902c529b7fb720ee",
+    "strategy": "29b38d138efd3adf582f962cd387b5b067294e5b6c9524d6fff9667f6898ef97",
+    "universe": "2a730dc5ed6dffbf7f37e5ed2e5d61a643f6e21d76ab7258f79e89962dbd928d"
+  }
+}

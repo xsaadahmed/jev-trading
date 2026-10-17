@@ -1,0 +1,145 @@
+# V2 research-semantic freeze config (prereg-v2-baseline).
+# Reuses V1 Model A definitions via source_refs; does not silently redefine them.
+
+study_id: V2
+study_name: baseline-validation
+parent_v1_tip: e5724df4b943006b3f73b4d6333a5177a7b77510
+branch: v2-baseline-validation
+docs:
+  master_spec: docs/V2_MASTER_SPEC.md
+  preregistration: docs/V2_PREREGISTRATION.md
+  known_issues: docs/V2_KNOWN_ISSUES.md
+
+# Paths to committed V1 artifacts that define Model A semantics.
+source_refs:
+  universe: config/universe.yaml
+  features: config/features.yaml
+  strategy: config/strategy.yaml
+  backtest: config/backtest.yaml
+  model_a_columns_module: src/jevlab/features/columns.py
+  selection_module: src/jevlab/signals/selection.py
+  sizing_module: src/jevlab/portfolio/sizing.py
+  labels_module: src/jevlab/targets/labels.py
+  embargo_module: src/jevlab/cv/purge.py
+  c_selection_module: src/jevlab/models/pipelines.py
+
+candidate:
+  model_id: A
+  model_class: logistic_regression_l2
+  preprocessing: StandardScaler_fit_on_train_only
+  logistic_C_grid: [0.01, 0.1, 1.0]
+  seed: 42
+  columns_must_equal_v1_MODEL_A_COLUMNS: true
+  jev_inputs: false
+
+target:
+  label_version: v1
+  definition: "y = 1[X > 0], X = R - Rbar"
+  R: "adj_open[t+4] / adj_open[t+1] - 1"
+  Rbar: equal_weight_mean_R_over_universe
+  entry_lag_sessions: 1
+  horizon_sessions: 3
+  primary_label: y
+
+eligibility:
+  rule: "adj_close > sma200"
+  sma_window: 200
+
+training:
+  sealed_score_start: "2024-01-02"
+  sealed_score_end: "2025-12-31"
+  t0: "2024-01-02"
+  embargo_sessions: 5
+  # Derived by embargo_cutoff_date(sessions, T0=2024-01-02, embargo=5)
+  final_training_decision_date: "2023-12-22"
+  inner_cv_splits: 3
+  c_selection: mean_inner_fold_log_loss
+  refit_policy: fit_once_pre_sealed_no_quarterly_refit
+  forbid_train_on_sealed_years: true
+
+strategy_rules:
+  top_k: 3
+  weighting: equal_equity_over_K
+  shortage_rule: "select min(K, n_eligible); size equity/K each; unused slots cash"
+  rebalance_every_sessions: 3
+  phases: [0, 1, 2]
+  acceptance_phase_agg: mean
+  fill_convention: adjusted_open_plus_slippage
+  fractional_shares: true
+  initial_capital_usd: 100000.0
+
+costs:
+  primary_scenario: normal
+  normal_cost_bps_per_side: 2.5
+  pessimistic_cost_bps_per_side: 6.0
+  sell_fee_bps: 0.3
+  # Full scenario table and per-symbol multipliers come from config/backtest.yaml
+
+random_null:
+  name: mechanics_matched_random_ranking
+  n: 2000
+  randomizes: ranking_among_eligible_only
+  retains:
+    - eligibility
+    - decision_dates
+    - phases
+    - K
+    - equal_weight_equity_over_K
+    - shortage_cash_slots
+    - entry_exit_hold
+    - costs
+    - capital
+    - ledger_or_fast_engine
+  seed_canonical_string: "v2-baseline-validation-random-null-v1"
+  base_seed: 15224036858585574915
+  child_seed_formula: "(base_seed + draw_id + phase) mod 2**64"
+  generator: numpy.random.PCG64
+  draw_id_indexing: one_based
+
+acceptance:
+  primary_statistic: mean_over_phases_annualized_net_sharpe_normal_costs
+  p_value_formula: "(1 + count(S_r >= S_A)) / (1 + N)"
+  p_threshold: 0.05
+  min_sharpe_advantage: 0.10
+  hard_gates:
+    R1: mechanics_no_leakage
+    E1: "p <= 0.05"
+    E2: "S_A - median(S_r) >= 0.10"
+    E3: "mean_phase_net_CAGR > 0 at normal costs"
+    E4: "mean_phase_net_CAGR > 0 at pessimistic costs"
+    E5: "worst_phase_max_drawdown <= 0.35 at normal costs"
+    PS1: "at least 2 of 3 phases: Sharpe_A(phase) > median Sharpe_random(phase)"
+    C1: "top5_profitable_roundtrips < 0.25 of P+; no ETF > 0.35 of P+; fail if P+ <= 0"
+    Z1: one_shot_seal_integrity
+  predictive_metrics_role: secondary_diagnostics_only
+  robustness_role: diagnostic_only
+  context_benchmarks_role: context_only
+  context_benchmarks:
+    - SPY_buy_and_hold
+    - equal_weight_13_etf_daily_close_to_close
+
+seal:
+  one_shot: true
+  second_look_flag: "--allow-second-look"
+  second_look_effect: SEAL_BROKEN_never_V2_SEALED_PASS
+  require_clean_tree: true
+  require_sealed_access_count_zero_before: true
+
+statuses:
+  - V2_SEALED_PASS
+  - V2_TINY_LIVE_READY
+  - V2_SCALE_READY
+
+forward:
+  enabled_at_freeze: false
+  reuse_v1_forward: false
+  clean_forward_requires:
+    - V2_SEALED_PASS
+    - production_forward_refit
+    - production_artifact_hash
+    - new_v2_deployment_timestamp
+
+anti_overfitting: >
+  No V2 rule, feature, threshold, model, target, universe, strategy parameter,
+  acceptance gate, or null construction may be changed based on the observed
+  2024–2025 sealed result. A failed V2 requires a new preregistered study.
