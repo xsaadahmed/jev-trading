@@ -1,0 +1,47 @@
+{
+  "qset_version": "qset_paraphrase_1",
+  "purpose": "research",
+  "questions": {
+    "dislocation": {
+      "type": "noul",
+      "instructions": "Given this fund's latest drop, is a short-term bounce more likely than the beginning of a lasting downtrend?",
+      "criteria": {
+        "true": "The pullback looks contained, the longer uptrend still holds, and markets appear orderly.",
+        "false": "The drop looks severe or broad, the longer uptrend looks broken, or markets look stressed."
+      }
+    },
+    "downside_risk": {
+      "type": "score",
+      "instructions": "Over the next few sessions, how high is the chance of another sharp decline?",
+      "criteria": ["Very low", "Low", "Normal", "Elevated", "Extreme"]
+    },
+    "regime_supportive": {
+      "type": "noul",
+      "instructions": "Do overall market conditions favor buying a brief dip in an otherwise rising fund?",
+      "criteria": {
+        "true": "The broad market uptrend holds and volatility is not extreme.",
+        "false": "The broad market is falling or volatility looks stressed."
+      }
+    },
+    "setup_type_a": {
+      "type": "choice",
+      "instructions": "Which label best matches the recent price path?",
+      "criteria": {
+        "pullback_in_uptrend": "A short dip inside a still-valid uptrend.",
+        "trend_breakdown": "An uptrend that is failing into a sustained drop.",
+        "sideways_noise": "Choppy range action without a clear setup.",
+        "extended_rally_pause": "A stretched advance that is pausing."
+      }
+    },
+    "setup_type_b": {
+      "type": "choice",
+      "instructions": "Which label best matches the recent price path?",
+      "criteria": {
+        "extended_rally_pause": "A stretched advance that is pausing.",
+        "sideways_noise": "Choppy range action without a clear setup.",
+        "trend_breakdown": "An uptrend that is failing into a sustained drop.",
+        "pullback_in_uptrend": "A short dip inside a still-valid uptrend."
+      }
+    }
+  }
+}

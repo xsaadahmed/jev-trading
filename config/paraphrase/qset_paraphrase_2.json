@@ -1,0 +1,47 @@
+{
+  "qset_version": "qset_paraphrase_2",
+  "purpose": "research",
+  "questions": {
+    "dislocation": {
+      "type": "noul",
+      "instructions": "Is the fund's recent weakness better read as a temporary setback that may recover soon, rather than a new persistent decline?",
+      "criteria": {
+        "true": "Weakness is limited, the longer-term uptrend remains, and conditions look calm.",
+        "false": "Weakness is large or widespread, the longer-term uptrend is impaired, or conditions look stressed."
+      }
+    },
+    "downside_risk": {
+      "type": "score",
+      "instructions": "Rate the near-term risk of a substantial further fall over the next few trading days.",
+      "criteria": ["Very low", "Low", "Normal", "Elevated", "Extreme"]
+    },
+    "regime_supportive": {
+      "type": "noul",
+      "instructions": "Is the market backdrop friendly to buying a short pullback in a fund that remains in an uptrend?",
+      "criteria": {
+        "true": "Broad-market trend is intact and volatility is not extreme.",
+        "false": "Broad market is weak or volatility is under stress."
+      }
+    },
+    "setup_type_a": {
+      "type": "choice",
+      "instructions": "Select the description that most closely fits recent price action.",
+      "criteria": {
+        "pullback_in_uptrend": "A temporary dip within an ongoing uptrend.",
+        "trend_breakdown": "Breakdown from a prior uptrend into continued decline.",
+        "sideways_noise": "Sideways noise lacking a clear directional setup.",
+        "extended_rally_pause": "A pause after an extended, stretched rally."
+      }
+    },
+    "setup_type_b": {
+      "type": "choice",
+      "instructions": "Select the description that most closely fits recent price action.",
+      "criteria": {
+        "extended_rally_pause": "A pause after an extended, stretched rally.",
+        "sideways_noise": "Sideways noise lacking a clear directional setup.",
+        "trend_breakdown": "Breakdown from a prior uptrend into continued decline.",
+        "pullback_in_uptrend": "A temporary dip within an ongoing uptrend."
+      }
+    }
+  }
+}
