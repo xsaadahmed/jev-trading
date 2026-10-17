@@ -3,8 +3,8 @@
 **Final conclusion:** Jev does not demonstrate useful predictive value.
 
 **Phase 11 reporting commit:** `7bef0e5`  
-**Archival closing commit:** (see `docs/archive/V1_ARCHIVAL_MANIFEST.json` after commit)  
-**Optional archival tag:** `v1-study-complete` (does **not** move `prereg-v1` / `qset-v1-frozen`)
+**Archival note commit:** `4bd6f29`  
+**Study-close commit / tag:** `v1-study-complete` (does **not** move `prereg-v1` / `qset-v1-frozen`)
 
 ---
 

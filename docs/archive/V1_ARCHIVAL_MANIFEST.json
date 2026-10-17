@@ -5,11 +5,11 @@
   "final_conclusion": "Jev does not demonstrate useful predictive value.",
   "archived_at_utc": "2026-10-17T07:30:00+00:00",
   "final_git_commit": "7bef0e5d75a1a09f5426509aa3b7e1d97b95c76f",
-  "archival_note_commit": null,
+  "archival_note_commit": "4bd6f297c34d90ab9e72b797278c3b87f114c792",
   "frozen_tags": {
     "prereg-v1": "eb1a1ad27dcd67df298fb96eb14c7f3dee843137",
     "qset-v1-frozen": "eb1a1ad27dcd67df298fb96eb14c7f3dee843137",
-    "v1-study-complete": null
+    "v1-study-complete": "tagged_on_study_close_commit_after_this_manifest"
   },
   "qset": {
     "qset_version": "qset_v1",
