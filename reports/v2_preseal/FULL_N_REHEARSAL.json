@@ -1,0 +1,22 @@
+{
+  "label": "development_rehearsal_only",
+  "v2_confirmatory_evidence": false,
+  "does_not_alter_gates_or_thresholds": true,
+  "ok": true,
+  "details": {
+    "n": 2000,
+    "n_executed": 2000,
+    "null_vector_digest": "954d004379ae89f8e23061cb476a6d20210b329676dbb422ac00c0f654cf5c84",
+    "deterministic_repeat": true,
+    "observed_mean_sharpe": -0.17737360129710025,
+    "p_value": 0.16941529235382308,
+    "advantage": 0.8985610359044448,
+    "median_null": -1.075934637201545,
+    "runtime_seconds": 438.5081735999556,
+    "nan_draws": 0,
+    "nan_fail_closed": false,
+    "fit_count": 1,
+    "does_not_alter_thresholds": true,
+    "v2_confirmatory_evidence": false
+  }
+}

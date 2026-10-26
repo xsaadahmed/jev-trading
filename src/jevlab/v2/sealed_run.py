@@ -20,7 +20,7 @@ from jevlab.experiments.acceptance import count_sealed_accesses
 from jevlab.jev.preconditions import PreconditionError, git_tag_exists, git_working_tree_clean
 from jevlab.utils.hashing import canonical_json, sha256_of
 from jevlab.v2.acceptance import V2GateMetrics, V2GateReport, evaluate_v2_gates
-from jevlab.v2.artifacts import invalidate_v2_sealed_pass, write_v2_sealed_pass
+from jevlab.v2.artifacts import atomic_write_json, invalidate_v2_sealed_pass, write_v2_sealed_pass
 from jevlab.v2.hashes import (
     FROZEN_COMMIT,
     FROZEN_PRESEAL_IMPL_TAG,
@@ -29,6 +29,7 @@ from jevlab.v2.hashes import (
     FrozenHashError,
     assert_frozen_research_hashes,
 )
+from jevlab.v2.sealed_source import ProductionSealedSource
 
 SEAL_BROKEN_STAMP = "SEAL BROKEN"
 SEAL_STATE_FILENAME = "v2_seal_state.json"
@@ -56,6 +57,15 @@ class SealedSource(Protocol):
     def load(self) -> dict[str, Any]:
         """Return sealed features/labels/bars. Tests provide fakes."""
         ...
+
+
+class InjectedCrash(RuntimeError):
+    """Fault-injection crash inside the atomic path."""
+
+
+def _maybe_crash(fail_after: str | None, step: str) -> None:
+    if fail_after is not None and fail_after == step:
+        raise InjectedCrash(f"injected crash after {step}")
 
 
 @dataclass
@@ -121,6 +131,7 @@ def assert_v2_final_test_preconditions(
     require_git_tags: bool = True,
     require_preseal_tag: bool = True,
     require_hashes: bool = True,
+    require_seal_token: bool = True,
 ) -> dict[str, str]:
     """Fail BEFORE any sealed read if a freeze/integrity precondition is unmet."""
     checks: dict[str, str] = {}
@@ -173,10 +184,13 @@ def assert_v2_final_test_preconditions(
     if v2_result_exists(root):
         raise PreconditionError("prior V2 sealed result or acceptance artifact exists")
     checks["no_prior_v2_result"] = "ok"
-    expected = os.environ.get(SEAL_TOKEN_ENV, "").strip()
-    if not expected or not seal_token or seal_token.strip() != expected:
-        raise SealedAccessError("sealed access denied: invalid or missing SEAL token")
-    checks["seal_token"] = "ok"
+    if require_seal_token:
+        expected = os.environ.get(SEAL_TOKEN_ENV, "").strip()
+        if not expected or not seal_token or seal_token.strip() != expected:
+            raise SealedAccessError("sealed access denied: invalid or missing SEAL token")
+        checks["seal_token"] = "ok"
+    else:
+        checks["seal_token"] = "skipped_preflight"
     return checks
 
 
@@ -189,6 +203,45 @@ class V2FinalTestResult:
     step_log: list[str]
     acceptance_path: Path | None = None
     result_path: Path | None = None
+
+
+def run_v2_preflight(
+    *,
+    root: Path,
+    registry_path: Path,
+    configured_sealed_path: Path,
+    require_clean_tree: bool = True,
+    require_git_tags: bool = True,
+    require_preseal_tag: bool = True,
+    require_hashes: bool = True,
+) -> dict[str, Any]:
+    """Terminate before SEAL authorization and before any sealed read.
+
+    May check configured-path existence without listing contents.
+    """
+    source = ProductionSealedSource(configured_sealed_path)
+    checks = assert_v2_final_test_preconditions(
+        root=root,
+        registry_path=registry_path,
+        seal_token="",
+        require_clean_tree=require_clean_tree,
+        require_git_tags=require_git_tags,
+        require_preseal_tag=require_preseal_tag,
+        require_hashes=require_hashes,
+        require_seal_token=False,
+    )
+    exists = configured_sealed_path.exists()
+    checks["configured_sealed_path"] = source.configured_path_string()
+    checks["configured_path_exists"] = "yes" if exists else "no"
+    checks["filesystem_reads"] = str(source.filesystem_reads)
+    if source.filesystem_reads != 0:
+        raise AssertionError("preflight performed a sealed filesystem read")
+    return {
+        "preflight": True,
+        "sealed_read": False,
+        "filesystem_reads": source.filesystem_reads,
+        "checks": checks,
+    }
 
 
 def run_v2_final_test(
@@ -207,10 +260,12 @@ def run_v2_final_test(
     require_hashes: bool = False,
     sealed_source: SealedSource | None = None,
     record_sealed_access: bool = True,
+    fail_after: str | None = None,
 ) -> V2FinalTestResult:
     """Atomic sealed path. Preconditions fail before ``sealed_source.load()``."""
     log = AtomicStepLog()
     log.record("validate_preconditions")
+    _maybe_crash(fail_after, "validate_preconditions")
     state = read_seal_state(seal_dir)
     seal_broken = bool(state.get("seal_broken"))
     if state.get("seal_opened") and not allow_second_look:
@@ -263,20 +318,28 @@ def run_v2_final_test(
             "opened_at": datetime.now(UTC).isoformat(),
         }
         write_seal_state(seal_dir, state)
+    _maybe_crash(fail_after, "append_sealed_access_record")
 
     # Atomic remaining steps - no pause between load and gate write.
     log.record("read_sealed_or_fixture")
+    if sealed_source is not None and hasattr(sealed_source, "authorize_for_atomic_path"):
+        sealed_source.authorize_for_atomic_path()
     payload = sealed_source.load() if sealed_source is not None else {"fixture": True}
-    log.record("construct_features_labels")
-    log.record("fit_once_pre_sealed")
-    log.record("archive_training_artifact")
-    log.record("score_entire_period")
-    log.record("candidate_backtest")
-    log.record("run_random_nulls")
-    log.record("calculate_hard_gates")
-    log.record("calculate_predictive_diagnostics")
-    log.record("calculate_robustness_diagnostics")
-    log.record("generate_result_report")
+    _maybe_crash(fail_after, "read_sealed_or_fixture")
+    for step in (
+        "construct_features_labels",
+        "fit_once_pre_sealed",
+        "archive_training_artifact",
+        "score_entire_period",
+        "candidate_backtest",
+        "run_random_nulls",
+        "calculate_hard_gates",
+        "calculate_predictive_diagnostics",
+        "calculate_robustness_diagnostics",
+        "generate_result_report",
+    ):
+        log.record(step)
+        _maybe_crash(fail_after, step)
     _ = payload
 
     from sqlalchemy import text
@@ -304,8 +367,9 @@ def run_v2_final_test(
     }
     result_digest = sha256_of(canonical_json(result_body))
     result_body["integrity_digest"] = result_digest
-    result_path.write_text(json.dumps(result_body, indent=2, default=str) + "\n", encoding="utf-8")
+    atomic_write_json(result_path, result_body)
     log.record("conditionally_write_acceptance")
+    _maybe_crash(fail_after, "conditionally_write_acceptance")
     acceptance_path = None
     written = False
     if not seal_broken and report.all_passed:
@@ -320,6 +384,7 @@ def run_v2_final_test(
         acceptance_path = art.path
         written = True
     log.record("close_run")
+    _maybe_crash(fail_after, "close_run")
     return V2FinalTestResult(
         gate_report=report,
         acceptance_written=written,

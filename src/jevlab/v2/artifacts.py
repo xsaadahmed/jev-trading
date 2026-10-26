@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,6 +28,15 @@ from jevlab.v2.hashes import (
 
 V2_SEALED_PASS_STATUS = "V2_SEALED_PASS"
 V2_SEALED_PASS_FILENAME = "V2_SEALED_PASS.json"
+
+
+def atomic_write_json(path: Path, body: Mapping[str, Any]) -> None:
+    """Write JSON via a temp file + os.replace so a crash cannot leave a partial pass file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(dict(body), indent=2, default=str) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,9 +95,8 @@ def write_v2_sealed_pass(
     digest = compute_integrity_digest(body)
     body["integrity_digest"] = digest
     out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / V2_SEALED_PASS_FILENAME
-    path.write_text(json.dumps(body, indent=2, default=str) + "\n", encoding="utf-8")
+    atomic_write_json(path, body)
     return V2AcceptanceArtifact(
         path=path, status=V2_SEALED_PASS_STATUS, integrity_digest=digest, body=body
     )

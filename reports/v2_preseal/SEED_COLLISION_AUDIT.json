@@ -1,0 +1,24 @@
+{
+  "formula": "(base_seed + draw_id + phase) mod 2**64",
+  "encoding": "plain integer addition; no extra mixing of (draw_id, phase)",
+  "n_draws": 2000,
+  "phases": [0, 1, 2],
+  "n_requested_streams": 6000,
+  "n_unique_child_seeds": 2002,
+  "collision_seed_count": 2000,
+  "colliding_pair_count": 5998,
+  "unique_pair_count": 2,
+  "unique_pairs": [[1, 0], [2000, 2]],
+  "additive_collision_example": {
+    "draw_r_phase_1": 15224036858585574917,
+    "draw_rplus1_phase_0": 15224036858585574917,
+    "equal": true
+  },
+  "same_phase_draws_distinct": true,
+  "same_draw_phases_distinct": true,
+  "material_violation_of_distinct_draw_phase_streams": true,
+  "formula_unchanged": true,
+  "disposition": "BLOCK_FREEZE",
+  "n_enumerated_pairs": 6000,
+  "interpretation": "child(r, 1) == child(r+1, 0) and child(r, 2) == child(r+2, 0). Adjacent draws reuse the same PCG64 stream across phases. Same-phase draws remain distinct. The frozen formula was not changed."
+}

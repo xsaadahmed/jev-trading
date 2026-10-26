@@ -11,6 +11,7 @@ import pandas as pd
 
 from jevlab.cv.purge import embargo_cutoff_date
 from jevlab.utils.calendar import nyse_session_dates
+from jevlab.utils.hashing import canonical_json, sha256_of
 from jevlab.v2.acceptance import (
     V2GateMetrics,
     concentration_from_trades,
@@ -24,8 +25,8 @@ from jevlab.v2.candidate import (
     run_model_a_backtest,
 )
 from jevlab.v2.dev_io import assert_frame_pre_sealed
-from jevlab.v2.null_engine import run_null_draw
-from jevlab.v2.statistics import evaluate_randomization
+from jevlab.v2.null_engine import run_null_distribution, run_null_draw
+from jevlab.v2.statistics import FROZEN_N, evaluate_randomization
 from jevlab.v2.training import fit_once_model_a, score_model_a
 
 REHEARSAL_LABEL = "development_rehearsal_only"
@@ -199,5 +200,102 @@ def run_synthetic_rehearsal(*, n_draws: int = 8) -> RehearsalResult:
             "gates_all_passed": gates.all_passed,
             "cannot_create_v2_sealed_pass": True,
             "ledger_fast_ok": ledger_fast_ok,
+        },
+    )
+
+
+def null_vector_digest(stats: np.ndarray) -> str:
+    payload = {"n": len(stats), "stats": [float(x) for x in stats]}
+    return sha256_of(canonical_json(payload))
+
+
+def run_full_n_rehearsal(*, repeat: bool = True) -> RehearsalResult:
+    """Software validation with frozen N=2000. Not V2 evidence. Does not alter gates."""
+    import time
+
+    frame, bars = _synthetic_panel(n_sessions=36, n_symbols=4, seed=11)
+    assert_frame_pre_sealed(frame)
+    assert_frame_pre_sealed(bars)
+    sessions = sorted(frame["date"].unique().tolist())
+    t0 = sessions[len(sessions) // 2]
+    cutoff = embargo_cutoff_date(sessions, t0, embargo_sessions=5)
+    assert cutoff is not None
+    train = frame.loc[frame["date"] <= cutoff]
+    score = frame.loc[frame["date"] >= t0]
+    fitted = fit_once_model_a(train, sessions=sessions, t0=t0, cutoff=cutoff)
+    preds = score_model_a(fitted, score)
+    if "score" not in preds.columns:
+        preds["score"] = preds["prob"]
+    cost_n = research_cost_model("normal")
+    risk = research_risk_config()
+    phase_sharpe: dict[int, float] = {}
+    for phase in V2_PHASES:
+        _ledger, _fast, m_n = run_model_a_backtest(
+            bars,
+            preds,
+            phase=phase,
+            cost=cost_n,
+            risk_config=risk,
+            metric_start=t0,
+            metric_end=sessions[-1],
+        )
+        phase_sharpe[phase] = float(m_n["sharpe"])
+    observed = float(sum(phase_sharpe.values()) / 3.0)
+    t0_run = time.perf_counter()
+    null_stats = run_null_distribution(
+        bars,
+        preds,
+        sessions=sessions,
+        cost=cost_n,
+        n=FROZEN_N,
+        allow_reduced_n=False,
+        risk_config=risk,
+        metric_start=t0,
+        metric_end=sessions[-1],
+        check_fast=False,
+    )
+    elapsed = time.perf_counter() - t0_run
+    if len(null_stats) != FROZEN_N:
+        return RehearsalResult(
+            ok=False, details={"error": "N silently changed", "n": len(null_stats)}
+        )
+    digest = null_vector_digest(null_stats)
+    repeat_ok = True
+    if repeat:
+        null_stats_2 = run_null_distribution(
+            bars,
+            preds,
+            sessions=sessions,
+            cost=cost_n,
+            n=FROZEN_N,
+            allow_reduced_n=False,
+            risk_config=risk,
+            metric_start=t0,
+            metric_end=sessions[-1],
+            check_fast=False,
+        )
+        repeat_ok = null_vector_digest(null_stats_2) == digest
+        observed_2 = float(sum(phase_sharpe.values()) / 3.0)
+        repeat_ok = repeat_ok and observed_2 == observed
+    test = evaluate_randomization(observed, null_stats, n=FROZEN_N)
+    nan_fail_closed = bool(np.isnan(null_stats).any())
+    return RehearsalResult(
+        ok=repeat_ok and fitted.fit_count == 1,
+        details={
+            "label": REHEARSAL_LABEL,
+            "n": FROZEN_N,
+            "n_executed": len(null_stats),
+            "null_vector_digest": digest,
+            "deterministic_repeat": repeat_ok,
+            "observed_mean_sharpe": observed,
+            "p_value": test.p_value,
+            "advantage": test.advantage,
+            "median_null": float(np.median(null_stats)),
+            "runtime_seconds": elapsed,
+            "nan_draws": int(np.isnan(null_stats).sum()),
+            "nan_fail_closed": nan_fail_closed,
+            "fit_count": fitted.fit_count,
+            "does_not_alter_thresholds": True,
+            "v2_confirmatory_evidence": False,
         },
     )

@@ -176,19 +176,31 @@ def run_null_distribution(
     sessions: list[date],
     cost: CostModel,
     n: int = FROZEN_N,
+    allow_reduced_n: bool = False,
     **kwargs: Any,
 ) -> np.ndarray:
-    stats = [
-        run_null_draw(
-            bars,
-            model_a_scores,
-            draw_id=r,
-            sessions=sessions,
-            cost=cost,
-            **kwargs,
-        ).mean_sharpe
-        for r in range(1, n + 1)
-    ]
+    """Run draws ``1..n``. Never silently lowers N or drops a draw.
+
+    Failed/NaN draws stay in the vector as NaN (fail-closed at evaluation).
+    """
+    if n != FROZEN_N and not allow_reduced_n:
+        raise ValueError(f"frozen random-null N is {FROZEN_N}; got {n}")
+    stats: list[float] = []
+    for r in range(1, n + 1):
+        try:
+            sh = run_null_draw(
+                bars,
+                model_a_scores,
+                draw_id=r,
+                sessions=sessions,
+                cost=cost,
+                **kwargs,
+            ).mean_sharpe
+        except Exception:
+            sh = float("nan")
+        stats.append(float(sh))
+    if len(stats) != n:
+        raise AssertionError("null distribution silently dropped draws")
     return np.asarray(stats, dtype=float)
 
 

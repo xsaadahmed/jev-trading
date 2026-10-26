@@ -15,6 +15,7 @@ from jevlab.v2.null_engine import (
     child_seed,
     randomize_ranking,
     rng_for,
+    run_null_distribution,
     run_null_draw,
     seed_policy_dict,
 )
@@ -175,6 +176,35 @@ def test_randomize_rejects_synthetic_sealed_dates() -> None:
     )
     with __import__("pytest").raises(SealedPathError):
         randomize_ranking(scores, draw_id=1, phase=0, sessions=sessions)
+
+
+def test_null_distribution_refuses_silent_n_change() -> None:
+    bars, scores, sessions = _toy()
+    cost = CostModel(2.5, 0.3, {}, "normal")
+    with __import__("pytest").raises(ValueError, match="frozen random-null N"):
+        run_null_distribution(
+            bars,
+            scores,
+            sessions=sessions,
+            cost=cost,
+            n=8,
+            risk_config=_risk(),
+            metric_start=sessions[0],
+            metric_end=sessions[-1],
+        )
+    arr = run_null_distribution(
+        bars,
+        scores,
+        sessions=sessions,
+        cost=cost,
+        n=3,
+        allow_reduced_n=True,
+        risk_config=_risk(),
+        metric_start=sessions[0],
+        metric_end=sessions[-1],
+        phases=(0,),
+    )
+    assert len(arr) == 3
 
 
 def test_uniformity_fixture() -> None:
