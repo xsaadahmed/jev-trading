@@ -29,6 +29,8 @@ reports/**
 !reports/acceptance/
 reports/acceptance/**
 !reports/acceptance/.gitkeep
+!reports/v2_preseal/
+!reports/v2_preseal/**
 
 # IDE / OS
 .idea/

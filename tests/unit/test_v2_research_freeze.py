@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from jevlab.config.v2_research import (
     EXPECTED_BASE_SEED,
@@ -78,7 +77,7 @@ def test_v2_research_hash_stable_and_manifest_matches() -> None:
     assert on_disk["section_hashes"] == rebuilt["section_hashes"]
     assert on_disk["locked"]["base_seed"] == EXPECTED_BASE_SEED
     assert on_disk["sealed_execution_authorized_by_this_freeze"] is False
-    # Recompute twice — deterministic.
+    # Recompute twice - deterministic.
     assert load_v2_research_bundle(root=root).research_config_hash == bundle.research_config_hash
 
 

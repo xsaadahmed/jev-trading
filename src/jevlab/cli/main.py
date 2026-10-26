@@ -10,6 +10,7 @@ from jevlab.cli.jev_cmd import app as jev_app
 from jevlab.cli.live import app as live_app
 from jevlab.cli.report import app as report_app
 from jevlab.cli.run import app as run_app
+from jevlab.cli.v2 import app as v2_app
 
 app = typer.Typer(
     name="jev",
@@ -22,6 +23,7 @@ app.add_typer(run_app, name="run")
 app.add_typer(jev_app, name="jev")
 app.add_typer(report_app, name="report")
 app.add_typer(live_app, name="live")
+app.add_typer(v2_app, name="v2")
 
 
 @app.callback()
