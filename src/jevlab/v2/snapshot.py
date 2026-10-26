@@ -26,6 +26,7 @@ SNAPSHOT_REL = Path("reports") / "v2_preseal" / "PRESEAL_SNAPSHOT.json"
 CODE_FILES = (
     "src/jevlab/v2/candidate.py",
     "src/jevlab/v2/null_engine.py",
+    "src/jevlab/v2/seed_policy.py",
     "src/jevlab/v2/acceptance.py",
     "src/jevlab/v2/sealed_run.py",
     "src/jevlab/v2/sealed_source.py",

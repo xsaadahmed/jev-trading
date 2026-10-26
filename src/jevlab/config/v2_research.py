@@ -1,7 +1,7 @@
 """V2 research-semantic config loader and canonical hashing.
 
 Resolves V2 freeze inputs against committed V1 Model A sources. Does not
-access sealed 2024–2025 data.
+access sealed 2024-2025 data.
 """
 
 from __future__ import annotations
@@ -203,7 +203,9 @@ def _root(root: Path | None) -> Path:
     return Path(root) if root is not None else get_project_root()
 
 
-def load_v2_research_file(path: Path | str | None = None, *, root: Path | None = None) -> V2ResearchFile:
+def load_v2_research_file(
+    path: Path | str | None = None, *, root: Path | None = None
+) -> V2ResearchFile:
     """Load and validate ``config/v2/research.yaml``."""
     base = _root(root)
     cfg_path = Path(path) if path is not None else base / V2_RESEARCH_REL
@@ -231,9 +233,11 @@ def _assert_v1_alignment(
         raise ValueError("features.yaml model_a_columns != MODEL_A_COLUMNS")
     if features.feature_version != FEATURE_VERSION:
         raise ValueError(f"feature_version mismatch: {features.feature_version}")
-    if research.candidate.columns_must_equal_v1_MODEL_A_COLUMNS:
-        if research.candidate.logistic_C_grid != list(strategy.logistic_C_grid):
-            raise ValueError("V2 C grid must match config/strategy.yaml")
+    if (
+        research.candidate.columns_must_equal_v1_MODEL_A_COLUMNS
+        and research.candidate.logistic_C_grid != list(strategy.logistic_C_grid)
+    ):
+        raise ValueError("V2 C grid must match config/strategy.yaml")
     if research.candidate.logistic_C_grid != [0.01, 0.1, 1.0]:
         raise ValueError("V2 C grid must be [0.01, 0.1, 1.0]")
     if research.candidate.seed != strategy.seed:
@@ -398,7 +402,9 @@ def load_v2_research_bundle(*, root: Path | None = None) -> V2ResearchBundle:
         strategy=strategy,
         backtest=backtest,
     )
-    section_hashes = {name: sha256_of(canonical_json(payload)) for name, payload in payloads.items()}
+    section_hashes = {
+        name: sha256_of(canonical_json(payload)) for name, payload in payloads.items()
+    }
     # Aggregate over the research-semantic sections required by the freeze prompt.
     aggregate_keys = (
         "universe",
@@ -485,7 +491,9 @@ def build_freeze_manifest(bundle: V2ResearchBundle) -> dict[str, Any]:
     }
 
 
-def write_freeze_manifest(path: Path | str | None = None, *, root: Path | None = None) -> dict[str, Any]:
+def write_freeze_manifest(
+    path: Path | str | None = None, *, root: Path | None = None
+) -> dict[str, Any]:
     """Compute and write ``config/v2/FREEZE_MANIFEST.json``."""
     import json
 

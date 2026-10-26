@@ -1,0 +1,18 @@
+{
+  "protocol_revision": 1,
+  "label": "development_rehearsal_only",
+  "namespace": "v2-baseline-validation-random-null-r1",
+  "base_seed": 15224036858585574915,
+  "n_draws": 2000,
+  "phases": [0, 1, 2],
+  "n_requested_streams": 6000,
+  "n_unique_child_seeds": 6000,
+  "collision_count": 0,
+  "seed_mapping_digest": "5c773811984b2fea232889295560f3ded3e6db79ca8e949ee5518933f88e58f9",
+  "draw_id_indexing": "zero_based",
+  "child_seed_bytes": 16,
+  "generator": "numpy.random.PCG64",
+  "numpy_api": "numpy.random.Generator(numpy.random.PCG64(child_seed))",
+  "sealed_access": 0,
+  "disposition": "UNIQUE_OK"
+}

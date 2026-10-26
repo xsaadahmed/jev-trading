@@ -4,19 +4,21 @@
   "does_not_alter_gates_or_thresholds": true,
   "ok": true,
   "details": {
+    "label": "development_rehearsal_only",
     "n": 2000,
     "n_executed": 2000,
-    "null_vector_digest": "954d004379ae89f8e23061cb476a6d20210b329676dbb422ac00c0f654cf5c84",
+    "null_vector_digest": "cd357551102529816662f14214499a24e9fdbf422969e722d901d476d77915ef",
     "deterministic_repeat": true,
     "observed_mean_sharpe": -0.17737360129710025,
-    "p_value": 0.16941529235382308,
-    "advantage": 0.8985610359044448,
-    "median_null": -1.075934637201545,
-    "runtime_seconds": 438.5081735999556,
+    "p_value": 0.1584207896051974,
+    "advantage": 0.8962647814044656,
+    "median_null": -1.0736383827015659,
+    "runtime_seconds": 478.9922225000337,
     "nan_draws": 0,
     "nan_fail_closed": false,
     "fit_count": 1,
     "does_not_alter_thresholds": true,
     "v2_confirmatory_evidence": false
-  }
+  },
+  "integrity_digest": "ded29402c6ac1c71013264b10a85705c1b34676a024f67d2d658528ea8396b67"
 }

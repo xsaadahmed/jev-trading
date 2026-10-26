@@ -9,6 +9,7 @@ import pandas as pd
 
 from jevlab.backtest.costs import CostModel
 from jevlab.config.models import RiskConfig
+from jevlab.config.v2_research import CHILD_SEED_FORMULA_R1, SEED_NAMESPACE_R1
 from jevlab.signals.selection import rebalance_dates
 from jevlab.v2.null_engine import (
     BASE_SEED,
@@ -71,17 +72,25 @@ def _toy(n_days: int = 18, n_sym: int = 5) -> tuple[pd.DataFrame, pd.DataFrame, 
 def test_seed_policy_frozen() -> None:
     policy = seed_policy_dict()
     assert policy["n"] == FROZEN_N == 2000
+    assert policy["protocol_revision"] == 1
+    assert policy["seed_namespace"] == SEED_NAMESPACE_R1
+    assert policy["draw_id_indexing"] == "zero_based"
+    assert policy["child_seed_formula"] == CHILD_SEED_FORMULA_R1
     assert policy["base_seed"] == BASE_SEED == 15224036858585574915
-    assert child_seed(1, 0) != child_seed(2, 0)
-    assert child_seed(1, 0) != child_seed(1, 1)
-    assert child_seed(1, 0) == (BASE_SEED + 1 + 0) % 2**64
+    assert child_seed(0, 0) != child_seed(1, 0)
+    assert child_seed(0, 0) != child_seed(0, 1)
+    assert child_seed(1, 1) != child_seed(2, 0)
+    assert child_seed(0, 0) != (BASE_SEED + 0 + 0) % 2**64
+    from jevlab.v2.seed_policy import child_seed as policy_child_seed
+
+    assert child_seed(0, 0) == policy_child_seed(0, 0)
 
 
 def test_rng_repeatable_and_distinct_streams() -> None:
-    a = rng_for(1, 0).random(8)
-    b = rng_for(1, 0).random(8)
-    c = rng_for(2, 0).random(8)
-    d = rng_for(1, 1).random(8)
+    a = rng_for(0, 0).random(8)
+    b = rng_for(0, 0).random(8)
+    c = rng_for(1, 0).random(8)
+    d = rng_for(0, 1).random(8)
     assert np.allclose(a, b)
     assert not np.allclose(a, c)
     assert not np.allclose(a, d)

@@ -25,7 +25,9 @@ from jevlab.v2.hashes import (
     FROZEN_COMMIT,
     FROZEN_PRESEAL_IMPL_TAG,
     FROZEN_TAG_DESIGN,
+    FROZEN_TAG_DESIGN_R1,
     FROZEN_TAG_PREREG,
+    FROZEN_TAG_PREREG_R1,
     FrozenHashError,
     assert_frozen_research_hashes,
 )
@@ -140,21 +142,39 @@ def assert_v2_final_test_preconditions(
     checks["working_tree"] = "clean"
     if require_git_tags:
         if not git_tag_exists(FROZEN_TAG_PREREG, cwd=root):
-            raise PreconditionError(f"missing tag {FROZEN_TAG_PREREG}")
+            raise PreconditionError(f"missing provenance tag {FROZEN_TAG_PREREG}")
         if not git_tag_exists(FROZEN_TAG_DESIGN, cwd=root):
-            raise PreconditionError(f"missing tag {FROZEN_TAG_DESIGN}")
+            raise PreconditionError(f"missing provenance tag {FROZEN_TAG_DESIGN}")
         prereg = peel_tag(FROZEN_TAG_PREREG, cwd=root)
         design = peel_tag(FROZEN_TAG_DESIGN, cwd=root)
         if prereg != FROZEN_COMMIT or design != FROZEN_COMMIT:
             raise PreconditionError(
-                f"V2 design tags must peel to {FROZEN_COMMIT}; got prereg={prereg} design={design}"
+                f"original V2 design tags must peel to {FROZEN_COMMIT}; "
+                f"got prereg={prereg} design={design}"
             )
         if prereg != design:
             raise PreconditionError("prereg-v2-baseline and v2-design-frozen diverge")
-        checks["tags"] = FROZEN_COMMIT
-        if not is_ancestor(FROZEN_COMMIT, cwd=root):
-            raise PreconditionError("HEAD is not a descendant of the V2 design freeze")
-        checks["descendant"] = "yes"
+        checks["tags_original"] = FROZEN_COMMIT
+        if not git_tag_exists(FROZEN_TAG_PREREG_R1, cwd=root):
+            raise PreconditionError(
+                f"missing execution tag {FROZEN_TAG_PREREG_R1} "
+                "(original V2 design tags are provenance only)"
+            )
+        if not git_tag_exists(FROZEN_TAG_DESIGN_R1, cwd=root):
+            raise PreconditionError(
+                f"missing execution tag {FROZEN_TAG_DESIGN_R1} "
+                "(original V2 design tags are provenance only)"
+            )
+        prereg_r1 = peel_tag(FROZEN_TAG_PREREG_R1, cwd=root)
+        design_r1 = peel_tag(FROZEN_TAG_DESIGN_R1, cwd=root)
+        if not prereg_r1 or not design_r1:
+            raise PreconditionError("revision-1 design tags could not be peeled")
+        if prereg_r1 != design_r1:
+            raise PreconditionError("prereg-v2-baseline-r1 and v2-design-frozen-r1 diverge")
+        checks["tags_r1"] = prereg_r1
+        if not is_ancestor(prereg_r1, cwd=root):
+            raise PreconditionError("HEAD is not a descendant of the revision-1 design freeze")
+        checks["descendant_r1"] = "yes"
         if require_preseal_tag and not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG, cwd=root):
             raise PreconditionError(
                 f"missing {FROZEN_PRESEAL_IMPL_TAG} (required for the real sealed run)"

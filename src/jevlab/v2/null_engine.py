@@ -13,29 +13,16 @@ from jevlab.backtest.costs import CostModel
 from jevlab.backtest.fast import equity_curves_equal, run_fast
 from jevlab.backtest.ledger import EQUITY_TOL_REL, LedgerResult, run_ledger
 from jevlab.config.models import RiskConfig
-from jevlab.config.v2_research import EXPECTED_BASE_SEED, SEED_CANONICAL_STRING
 from jevlab.evaluation.metrics import compute_economic_metrics
 from jevlab.signals.selection import rebalance_dates, select_top_k
 from jevlab.v2.candidate import V2_PHASES, V2_TOP_K, research_risk_config
 from jevlab.v2.dev_io import assert_frame_pre_sealed
+from jevlab.v2.seed_policy import BASE_SEED, rng_for
+from jevlab.v2.seed_policy import child_seed as child_seed
+from jevlab.v2.seed_policy import seed_policy_dict as seed_policy_dict
 from jevlab.v2.statistics import FROZEN_N, NullTestResult, evaluate_randomization
 
-MOD_64: int = 2**64
-BASE_SEED: int = EXPECTED_BASE_SEED
 assert BASE_SEED == 15224036858585574915
-
-
-def child_seed(draw_id: int, phase: int, *, base_seed: int = BASE_SEED) -> int:
-    """``(base_seed + draw_id + phase) mod 2**64``; draw_id is 1-based."""
-    if draw_id < 1:
-        raise ValueError("draw_id is 1-based")
-    if phase not in V2_PHASES:
-        raise ValueError(f"phase must be in {V2_PHASES}")
-    return int((base_seed + int(draw_id) + int(phase)) % MOD_64)
-
-
-def rng_for(draw_id: int, phase: int, *, base_seed: int = BASE_SEED) -> np.random.Generator:
-    return np.random.Generator(np.random.PCG64(child_seed(draw_id, phase, base_seed=base_seed)))
 
 
 def randomize_ranking(
@@ -179,14 +166,14 @@ def run_null_distribution(
     allow_reduced_n: bool = False,
     **kwargs: Any,
 ) -> np.ndarray:
-    """Run draws ``1..n``. Never silently lowers N or drops a draw.
+    """Run draws ``0..n-1``. Never silently lowers N or drops a draw.
 
     Failed/NaN draws stay in the vector as NaN (fail-closed at evaluation).
     """
     if n != FROZEN_N and not allow_reduced_n:
         raise ValueError(f"frozen random-null N is {FROZEN_N}; got {n}")
     stats: list[float] = []
-    for r in range(1, n + 1):
+    for r in range(0, n):
         try:
             sh = run_null_draw(
                 bars,
@@ -209,13 +196,3 @@ def compare_to_null(
 ) -> NullTestResult:
     return evaluate_randomization(observed_mean_sharpe, null_stats, n=n)
 
-
-def seed_policy_dict() -> dict[str, Any]:
-    return {
-        "canonical_string": SEED_CANONICAL_STRING,
-        "base_seed": BASE_SEED,
-        "child_seed_formula": "(base_seed + draw_id + phase) mod 2**64",
-        "generator": "numpy.random.PCG64",
-        "n": FROZEN_N,
-        "draw_id_indexing": "one_based",
-    }

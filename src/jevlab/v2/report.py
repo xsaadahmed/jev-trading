@@ -16,12 +16,14 @@ from jevlab.v2.equivalence import SANITY_TARGETS, load_dev_inputs_or_none, run_e
 from jevlab.v2.hashes import (
     FROZEN_COMMIT,
     FROZEN_TAG_DESIGN,
+    FROZEN_TAG_DESIGN_R1,
     FROZEN_TAG_PREREG,
+    FROZEN_TAG_PREREG_R1,
     assert_frozen_research_hashes,
     frozen_hash_payload,
 )
-from jevlab.v2.null_engine import BASE_SEED, child_seed, seed_policy_dict
 from jevlab.v2.rehearsal import REHEARSAL_LABEL, run_synthetic_rehearsal
+from jevlab.v2.seed_policy import BASE_SEED, child_seed, seed_policy_dict
 from jevlab.v2.statistics import FROZEN_N, MIN_SHARPE_ADVANTAGE, P_THRESHOLD
 from jevlab.v2.training import EXPECTED_CUTOFF, SEALED_T0, assert_sealed_training_cutoff
 
@@ -104,10 +106,11 @@ def build_preseal_payload(*, run_equivalence_wf: bool = True) -> dict[str, Any]:
             "Rehearsal uses reduced N for software validation; frozen N remains 2000.",
             "V2_SEALED_PASS is not created from rehearsal.",
             "The real `jev v2 final-test` command is implemented but must not be "
-            "executed against 2024-2025 in this phase (ForbiddenRealSealedSource).",
+            "executed against 2024-2025 in this phase.",
         ],
         "robustness_spec": robustness_spec(),
         "v2_design_tags": [FROZEN_TAG_PREREG, FROZEN_TAG_DESIGN],
+        "v2_design_tags_r1": [FROZEN_TAG_PREREG_R1, FROZEN_TAG_DESIGN_R1],
         "v2_design_commit": FROZEN_COMMIT,
         "rehearsal_label": REHEARSAL_LABEL,
         "sealed_execution_authorized": False,
