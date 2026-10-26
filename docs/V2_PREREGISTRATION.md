@@ -3,11 +3,14 @@
 **Study:** V2 — Ranking-value validation of exact V1 Model A  
 **Parent tip:** `e5724df` (`v1-study-complete`)  
 **Branch:** `v2-baseline-validation`  
-**Freeze tags:** `prereg-v2-baseline`, `v2-design-frozen`  
+**Protocol revision:** 1  
+**Original freeze tags (preserved):** `prereg-v2-baseline`, `v2-design-frozen`  
+**Execution-authoritative tags:** `prereg-v2-baseline-r1`, `v2-design-frozen-r1`  
+**Amendment:** `docs/V2_AMENDMENT_001_SEED_STREAMS.md`  
 **Config:** `config/v2/research.yaml`  
 **Sealed access:** must remain **0** until authorized V2-7 run
 
-This document is the frozen analysis plan. It is binding at the freeze tags. It does **not** authorize sealed execution by itself.
+This document is the analysis plan. Original freeze tags remain provenance. Execution is bound to protocol revision 1. It does **not** authorize sealed execution by itself.
 
 ---
 
@@ -105,9 +108,21 @@ V1 note (resolved for V2): `fit_sealed_test_models` used `date ≤ 2023-12-29` w
 `base_seed = int.from_bytes(SHA256(b"v2-baseline-validation-random-null-v1").digest()[:8], "big")`  
 **= `15224036858585574915`**.
 
-For draw `r ∈ {1..2000}` and phase `φ ∈ {0,1,2}`:
+**Original (revision 0, audit artifact):** draw `r ∈ {1..2000}`, phase `φ ∈ {0,1,2}`:  
+`child_seed = (base_seed + r + φ) mod 2^64` → `Generator(PCG64(child_seed))`.  
+Pre-seal audit found 2002 unique seeds among 6000 streams.
 
-`child_seed = (base_seed + r + φ) mod 2^64` → `Generator(PCG64(child_seed))`.
+**Revision 1 (execution-authoritative):**
+
+```
+namespace = "v2-baseline-validation-random-null-r1"
+draw_id ∈ {0..1999}, phase ∈ {0,1,2}
+canonical = f"{namespace}|{base_seed}|{draw_id}|{phase}"  # UTF-8
+child_seed = int.from_bytes(SHA256(canonical.encode("utf-8")).digest()[:16], "big")
+rng = numpy.random.Generator(numpy.random.PCG64(child_seed))
+```
+
+Uniqueness invariant: `unique_child_seeds == 6000` or STOP. Do not use Python `hash()`. Do not truncate to 32 bits.
 
 Each decision date (calendar order): random permutation of that day’s **Model A eligible set**; take first `min(3, n_eligible)`; size with `equal_weight_notionals(..., k=3)`; same engine/costs/capital as Model A.
 

@@ -1,14 +1,19 @@
-# V2 research-semantic freeze config (prereg-v2-baseline).
+# V2 research-semantic freeze config (protocol revision 1).
+# Original design freeze: prereg-v2-baseline / v2-design-frozen at 6f4f815.
+# Execution-authoritative: prereg-v2-baseline-r1 / v2-design-frozen-r1.
 # Reuses V1 Model A definitions via source_refs; does not silently redefine them.
 
 study_id: V2
 study_name: baseline-validation
+protocol_revision: 1
+supersedes_design_commit: "6f4f815a7551244673cb8f0a853f238ad11b8544"
 parent_v1_tip: e5724df4b943006b3f73b4d6333a5177a7b77510
 branch: v2-baseline-validation
 docs:
   master_spec: docs/V2_MASTER_SPEC.md
   preregistration: docs/V2_PREREGISTRATION.md
   known_issues: docs/V2_KNOWN_ISSUES.md
+  amendment_001: docs/V2_AMENDMENT_001_SEED_STREAMS.md
 
 # Paths to committed V1 artifacts that define Model A semantics.
 source_refs:
@@ -90,11 +95,15 @@ random_null:
     - costs
     - capital
     - ledger_or_fast_engine
+  protocol_revision: 1
   seed_canonical_string: "v2-baseline-validation-random-null-v1"
+  seed_namespace: "v2-baseline-validation-random-null-r1"
   base_seed: 15224036858585574915
-  child_seed_formula: "(base_seed + draw_id + phase) mod 2**64"
+  child_seed_formula: "int.from_bytes(SHA256(utf8(f'{seed_namespace}|{base_seed}|{draw_id}|{phase}')).digest()[:16], 'big')"
   generator: numpy.random.PCG64
-  draw_id_indexing: one_based
+  numpy_api: "numpy.random.Generator(numpy.random.PCG64(child_seed))"
+  draw_id_indexing: zero_based
+  child_seed_bytes: 16
 
 acceptance:
   primary_statistic: mean_over_phases_annualized_net_sharpe_normal_costs

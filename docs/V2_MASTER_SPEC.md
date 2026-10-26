@@ -2,12 +2,15 @@
 
 **Study ID:** V2  
 **Branch:** `v2-baseline-validation` (forked from V1 archival tip `e5724df`)  
-**Status:** RESEARCH DESIGN FROZEN (`prereg-v2-baseline` / `v2-design-frozen`)  
+**Protocol revision:** 1 (execution-authoritative)  
+**Original design freeze:** `prereg-v2-baseline` / `v2-design-frozen` at `6f4f815a7551244673cb8f0a853f238ad11b8544` (preserved; not moved)  
+**Revision-1 design freeze:** `prereg-v2-baseline-r1` / `v2-design-frozen-r1`  
+**Amendment:** `docs/V2_AMENDMENT_001_SEED_STREAMS.md`  
 **Parent study:** V1 (archived; conclusion: *Jev does not demonstrate useful predictive value.*)  
 **Freeze date:** 2026-10-17  
 **Config:** `config/v2/research.yaml` + `config/v2/FREEZE_MANIFEST.json`
 
-This document is the frozen scientific and engineering specification for V2. Freeze authorizes pre-sealed implementation only. It does **not** authorize sealed 2024–2025 access, sealed evaluation, forward capture, live trading, or acceptance artifacts.
+This document is the scientific and engineering specification for V2. The original freeze remains an audit artifact. Protocol revision 1 supersedes **only** random-null child RNG stream derivation. Freeze authorizes pre-sealed implementation only. It does **not** authorize sealed 2024–2025 access, sealed evaluation, forward capture, live trading, or acceptance artifacts.
 
 ---
 
@@ -210,16 +213,34 @@ On every Model A decision date in that phase:
 ### 4.2 N and seeds (frozen before sealed access)
 
 - `N = 2000` independent draws.  
-- Canonical string: `"v2-baseline-validation-random-null-v1"`.  
+- Canonical string that produces `base_seed`: `"v2-baseline-validation-random-null-v1"`.  
 - `base_seed = int.from_bytes(SHA256(canonical_string).digest()[:8], byteorder="big")`  
   (unsigned 64-bit integer from the first 8 digest bytes)  
   **= `15224036858585574915`**.  
+- Generator: `numpy.random.PCG64` via  
+  `numpy.random.Generator(numpy.random.PCG64(child_seed))`.
+
+**Original (revision 0) child formula — audit artifact only, not for execution:**
+
 - For draw `r` (1-based) and phase `φ ∈ {0,1,2}`:  
-  `child_seed = (base_seed + r + φ) mod 2^64`  
-  used to seed `numpy.random.Generator(numpy.random.PCG64(child_seed))`.  
+  `child_seed = (base_seed + r + φ) mod 2^64`.  
+- Pre-seal audit: 6000 requested streams produced only 2002 unique child seeds  
+  (cross-phase collisions, e.g. `child(r,1) == child(r+1,0)`).
+
+**Protocol revision 1 child formula — execution-authoritative (amendment 001):**
+
+- Namespace: `"v2-baseline-validation-random-null-r1"`.  
+- `draw_id ∈ {0,1,…,1999}`, `phase ∈ {0,1,2}`.  
+- Canonical UTF-8 string:  
+  `f"{namespace}|{base_seed}|{draw_id}|{phase}"`.  
+- `digest = SHA256(canonical_string.encode("utf-8"))`.  
+- `child_seed = int.from_bytes(digest[:16], byteorder="big", signed=False)`  
+  (128-bit; do not use Python `hash()`; do not truncate to 32 bits).  
+- Frozen uniqueness invariant: 6000 requested streams must yield 6000 unique child seeds. If not: STOP.
+
 - Within a (draw, phase), advance the generator once per decision date in calendar order; at each date draw a random permutation of the eligible symbol list and take the first `min(3, n_eligible)`.
 
-Seeds are locked in this document **before** sealed access. Do not re-choose seeds after outcomes are seen.
+Seeds are locked in this document **before** sealed access. Do not re-choose seeds after outcomes are seen. The original frozen protocol remains preserved as an audit artifact and is superseded for execution by protocol revision 1.
 
 ### 4.3 Interpretation
 

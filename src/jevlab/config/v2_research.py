@@ -23,6 +23,15 @@ from jevlab.utils.paths import get_project_root
 V2_RESEARCH_REL = Path("config") / "v2" / "research.yaml"
 V2_MANIFEST_REL = Path("config") / "v2" / "FREEZE_MANIFEST.json"
 SEED_CANONICAL_STRING = "v2-baseline-validation-random-null-v1"
+SEED_NAMESPACE_R1 = "v2-baseline-validation-random-null-r1"
+PROTOCOL_REVISION = 1
+ORIGINAL_DESIGN_COMMIT = "6f4f815a7551244673cb8f0a853f238ad11b8544"
+CHILD_SEED_FORMULA_R1 = (
+    "int.from_bytes(SHA256(utf8(f'{seed_namespace}|{base_seed}|{draw_id}|{phase}'))"
+    ".digest()[:16], 'big')"
+)
+NUMPY_PCG64_API = "numpy.random.Generator(numpy.random.PCG64(child_seed))"
+CHILD_SEED_BYTES = 16
 EXPECTED_BASE_SEED = int.from_bytes(
     hashlib.sha256(SEED_CANONICAL_STRING.encode("utf-8")).digest()[:8],
     byteorder="big",
@@ -109,11 +118,15 @@ class V2RandomNull(_Strict):
     n: int
     randomizes: str
     retains: list[str]
+    protocol_revision: int
     seed_canonical_string: str
+    seed_namespace: str
     base_seed: int
     child_seed_formula: str
     generator: str
+    numpy_api: str
     draw_id_indexing: str
+    child_seed_bytes: int
 
 
 class V2Acceptance(_Strict):
@@ -146,11 +159,14 @@ class V2Docs(_Strict):
     master_spec: str
     preregistration: str
     known_issues: str
+    amendment_001: str
 
 
 class V2ResearchFile(_Strict):
     study_id: str
     study_name: str
+    protocol_revision: int
+    supersedes_design_commit: str
     parent_v1_tip: str
     branch: str
     docs: V2Docs
@@ -257,15 +273,33 @@ def _assert_v1_alignment(
         raise ValueError(f"training cutoff must be {EXPECTED_TRAINING_CUTOFF}")
     if research.training.embargo_sessions != 5:
         raise ValueError("embargo_sessions must be 5")
+    if research.protocol_revision != PROTOCOL_REVISION:
+        raise ValueError(f"protocol_revision must be {PROTOCOL_REVISION}")
+    if research.supersedes_design_commit != ORIGINAL_DESIGN_COMMIT:
+        raise ValueError("supersedes_design_commit must be the original V2 design commit")
     if research.random_null.n != 2000:
         raise ValueError("random_null.n must be 2000")
+    if research.random_null.protocol_revision != PROTOCOL_REVISION:
+        raise ValueError("random_null.protocol_revision must be 1")
     if research.random_null.seed_canonical_string != SEED_CANONICAL_STRING:
         raise ValueError("seed canonical string mismatch")
+    if research.random_null.seed_namespace != SEED_NAMESPACE_R1:
+        raise ValueError("seed_namespace mismatch")
     if research.random_null.base_seed != EXPECTED_BASE_SEED:
         raise ValueError(
             f"base_seed mismatch: config={research.random_null.base_seed} "
             f"expected={EXPECTED_BASE_SEED}"
         )
+    if research.random_null.child_seed_formula != CHILD_SEED_FORMULA_R1:
+        raise ValueError("child_seed_formula mismatch vs revision 1")
+    if research.random_null.draw_id_indexing != "zero_based":
+        raise ValueError("draw_id_indexing must be zero_based")
+    if research.random_null.child_seed_bytes != CHILD_SEED_BYTES:
+        raise ValueError("child_seed_bytes must be 16")
+    if research.random_null.numpy_api != NUMPY_PCG64_API:
+        raise ValueError("numpy_api mismatch")
+    if research.random_null.generator != "numpy.random.PCG64":
+        raise ValueError("generator must be numpy.random.PCG64")
     if research.acceptance.p_threshold != 0.05:
         raise ValueError("p_threshold must be 0.05")
     if research.acceptance.min_sharpe_advantage != 0.10:
@@ -399,7 +433,9 @@ def build_freeze_manifest(bundle: V2ResearchBundle) -> dict[str, Any]:
     return {
         "study_id": r.study_id,
         "study_name": r.study_name,
-        "status": "RESEARCH_DESIGN_FROZEN",
+        "protocol_revision": r.protocol_revision,
+        "supersedes_design_commit": r.supersedes_design_commit,
+        "status": "RESEARCH_DESIGN_FROZEN_R1",
         "parent_v1_tip": r.parent_v1_tip,
         "branch": r.branch,
         "docs": r.docs.model_dump(mode="json"),
@@ -429,10 +465,16 @@ def build_freeze_manifest(bundle: V2ResearchBundle) -> dict[str, Any]:
             "final_training_decision_date": r.training.final_training_decision_date,
             "embargo_sessions": r.training.embargo_sessions,
             "refit_policy": r.training.refit_policy,
+            "protocol_revision": r.protocol_revision,
+            "original_design_commit": r.supersedes_design_commit,
             "random_null_n": r.random_null.n,
             "seed_canonical_string": r.random_null.seed_canonical_string,
+            "seed_namespace": r.random_null.seed_namespace,
             "base_seed": r.random_null.base_seed,
             "child_seed_formula": r.random_null.child_seed_formula,
+            "draw_id_indexing": r.random_null.draw_id_indexing,
+            "child_seed_bytes": r.random_null.child_seed_bytes,
+            "numpy_api": r.random_null.numpy_api,
             "primary_statistic": r.acceptance.primary_statistic,
             "p_threshold": r.acceptance.p_threshold,
             "min_sharpe_advantage": r.acceptance.min_sharpe_advantage,

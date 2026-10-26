@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 
 from jevlab.config.v2_research import (
+    CHILD_SEED_FORMULA_R1,
     EXPECTED_BASE_SEED,
     EXPECTED_TRAINING_CUTOFF,
+    PROTOCOL_REVISION,
     SEED_CANONICAL_STRING,
+    SEED_NAMESPACE_R1,
     V2_MANIFEST_REL,
     build_freeze_manifest,
     load_v2_research_bundle,
@@ -45,8 +48,12 @@ def test_v2_research_bundle_aligns_to_v1_model_a() -> None:
     assert r.training.final_training_decision_date == EXPECTED_TRAINING_CUTOFF
     assert r.training.embargo_sessions == 5
     assert r.training.refit_policy == "fit_once_pre_sealed_no_quarterly_refit"
+    assert r.protocol_revision == PROTOCOL_REVISION == 1
     assert r.random_null.n == 2000
     assert r.random_null.seed_canonical_string == SEED_CANONICAL_STRING
+    assert r.random_null.seed_namespace == SEED_NAMESPACE_R1
+    assert r.random_null.draw_id_indexing == "zero_based"
+    assert r.random_null.child_seed_formula == CHILD_SEED_FORMULA_R1
     assert r.random_null.base_seed == EXPECTED_BASE_SEED
     assert r.acceptance.p_threshold == 0.05
     assert r.acceptance.min_sharpe_advantage == 0.10
@@ -87,6 +94,7 @@ def test_v2_docs_exist() -> None:
         "docs/V2_MASTER_SPEC.md",
         "docs/V2_PREREGISTRATION.md",
         "docs/V2_KNOWN_ISSUES.md",
+        "docs/V2_AMENDMENT_001_SEED_STREAMS.md",
         "config/v2/research.yaml",
     ):
         assert (root / rel).is_file()

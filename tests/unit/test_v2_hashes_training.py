@@ -16,6 +16,8 @@ from jevlab.v2.hashes import (
     FROZEN_CANDIDATE_HASH,
     FROZEN_RANDOM_NULL_HASH,
     FROZEN_RESEARCH_CONFIG_HASH,
+    ORIGINAL_RANDOM_NULL_HASH,
+    ORIGINAL_RESEARCH_CONFIG_HASH,
     assert_frozen_research_hashes,
 )
 from jevlab.v2.training import (
@@ -34,6 +36,12 @@ def test_frozen_hashes_match_live_config() -> None:
     assert live["candidate"] == FROZEN_CANDIDATE_HASH
     assert live["random_null"] == FROZEN_RANDOM_NULL_HASH
     assert live["acceptance_gates"] == FROZEN_ACCEPTANCE_GATE_HASH
+    assert FROZEN_RANDOM_NULL_HASH != ORIGINAL_RANDOM_NULL_HASH
+    assert FROZEN_RESEARCH_CONFIG_HASH != ORIGINAL_RESEARCH_CONFIG_HASH
+    assert live["candidate"] == "aa0ff14bfa5fe41d0b0767c97090c0b9df70ea8e687594e5c47deed272a55a28"
+    assert live["acceptance_gates"] == (
+        "5e32900f2c16065d98271b8706b528e8e1682601314207085bdc3b34a9bea6be"
+    )
 
 
 def test_candidate_semantics_match_v1() -> None:

@@ -1,6 +1,7 @@
 {
   "branch": "v2-baseline-validation",
   "docs": {
+    "amendment_001": "docs/V2_AMENDMENT_001_SEED_STREAMS.md",
     "known_issues": "docs/V2_KNOWN_ISSUES.md",
     "master_spec": "docs/V2_MASTER_SPEC.md",
     "preregistration": "docs/V2_PREREGISTRATION.md"
@@ -8,7 +9,9 @@
   "forward_enabled_at_freeze": false,
   "locked": {
     "base_seed": 15224036858585574915,
-    "child_seed_formula": "(base_seed + draw_id + phase) mod 2**64",
+    "child_seed_bytes": 16,
+    "child_seed_formula": "int.from_bytes(SHA256(utf8(f'{seed_namespace}|{base_seed}|{draw_id}|{phase}')).digest()[:16], 'big')",
+    "draw_id_indexing": "zero_based",
     "embargo_sessions": 5,
     "feature_version": "v1",
     "final_training_decision_date": "2023-12-22",
@@ -43,15 +46,20 @@
       "rel_ret_5d",
       "xs_rank_ret_5d"
     ],
+    "numpy_api": "numpy.random.Generator(numpy.random.PCG64(child_seed))",
+    "original_design_commit": "6f4f815a7551244673cb8f0a853f238ad11b8544",
     "p_threshold": 0.05,
     "primary_statistic": "mean_over_phases_annualized_net_sharpe_normal_costs",
+    "protocol_revision": 1,
     "random_null_n": 2000,
     "refit_policy": "fit_once_pre_sealed_no_quarterly_refit",
     "seed_canonical_string": "v2-baseline-validation-random-null-v1",
+    "seed_namespace": "v2-baseline-validation-random-null-r1",
     "t0": "2024-01-02"
   },
   "parent_v1_tip": "e5724df4b943006b3f73b4d6333a5177a7b77510",
-  "research_config_hash": "96947d9901b5366246ab1073af7ec17a83cf2bd074ecb0f32f66fcad21a8fe1c",
+  "protocol_revision": 1,
+  "research_config_hash": "e436ed977a02a39a0a280d78dcad74fa67e3ff1276f18a3430f249a9aeaf13ce",
   "sealed_execution_authorized_by_this_freeze": false,
   "section_hashes": {
     "acceptance_gates": "5e32900f2c16065d98271b8706b528e8e1682601314207085bdc3b34a9bea6be",
@@ -59,15 +67,16 @@
     "costs": "74114006e731780591dd2a0b8ea9110f1261fe99fe9e8bb7231d326b7b529329",
     "eligibility": "b97cb39dd99e65f9c6ede7a2a34b2e5a2cc55b5dec196117c42f4375c1ece420",
     "feature_set": "cf4e9dab9b20d33cb5c51ecb5cf4c2bdad3282016afbe34e2a6ce9d94e7ad396",
-    "random_null": "d8661aa1fcaf42ce239865049a9707d41dee2c598faf4de06de7630cfead977e",
+    "random_null": "9365e46d2ffc657d2b078cd851b90bac8f8ace3357313743769efdabf6498b2e",
     "strategy": "ce46464d3d33bd20e96c6f429ebad60a991dc284b331f769c457f121ea43b521",
     "target": "baf60d37d71211e94a2bfeff0027d8a1b4a2e131cf1023e03ce1d289acf35381",
     "training": "efb523fdec83fcca00c2caea0753188f168f237a8af0f7736af508ef5bccbee4",
     "universe": "73d3fcff3c0b7df72871e6ab72085c3e4afba998ce1f66e31e06705b36d473fb"
   },
-  "status": "RESEARCH_DESIGN_FROZEN",
+  "status": "RESEARCH_DESIGN_FROZEN_R1",
   "study_id": "V2",
   "study_name": "baseline-validation",
+  "supersedes_design_commit": "6f4f815a7551244673cb8f0a853f238ad11b8544",
   "v1_config_hashes": {
     "backtest": "c4f6ce7c3cb5007ba7812ca99ae5071c06ad52fed32098b430d50603677ce3d7",
     "features": "78f29f67d0501d2199ff08c2f76979163e23ecbeb4f76905902c529b7fb720ee",

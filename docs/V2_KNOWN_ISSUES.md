@@ -2,7 +2,10 @@
 
 **Study:** V2 — Ranking-value validation of exact V1 Model A  
 **Branch:** `v2-baseline-validation`  
-**Freeze tags:** `prereg-v2-baseline`, `v2-design-frozen`  
+**Protocol revision:** 1  
+**Original freeze tags (preserved):** `prereg-v2-baseline`, `v2-design-frozen`  
+**Execution-authoritative tags:** `prereg-v2-baseline-r1`, `v2-design-frozen-r1`  
+**Amendment:** `docs/V2_AMENDMENT_001_SEED_STREAMS.md`  
 **Sealed 2024–2025 accessed:** **NO**  
 **Sealed access count:** must remain **0** until authorized V2-7
 
@@ -65,7 +68,7 @@ V1 G7 used different share definitions. V2 uses predeclared positive-P&L ratios 
 3. **E5 worst-phase DD ≤ 35%** is a pathology cap, not fitted to V1’s historical DD.  
 4. **Context equal-weight benchmark** uses daily close-to-close mean returns (`benchmark_returns`), which is **not** mechanics-matched to the 3-session top-K book — acceptable because it is context-only.  
 5. **Phase-pooled concentration** (canonical) vs per-phase tables (exploratory): hard gate uses the pooled sealed Model A normal-cost round trips as specified in `V2_MASTER_SPEC.md`.  
-6. **Child seed formula** `(base_seed + r + φ) mod 2^64` is simple and deterministic; phase seeds are not cryptographically independent streams beyond PCG64 splitting — adequate for a preregistered Monte Carlo null.
+6. **Original child-seed formula collided (amended pre-seal).** The additive rule `(base_seed + r + φ) mod 2^64` produced 2002 unique seeds among 6000 requested `(draw_id, phase)` streams. Protocol amendment 001 replaces child derivation with SHA-256 mixing; uniqueness `6000/6000` is now a frozen invariant. The original formula remains an audit artifact. See `docs/V2_AMENDMENT_001_SEED_STREAMS.md`. Revision-1 streams are distinct by construction of the 128-bit digest prefix; they are not claimed to be cryptographically independent beyond that uniqueness invariant.
 
 None of these require sealed peeking to resolve.
 
