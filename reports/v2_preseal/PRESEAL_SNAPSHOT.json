@@ -1,0 +1,68 @@
+{
+  "created_at": "2026-10-26T03:12:34.467983+00:00",
+  "implementation_git_commit": "450ecf3fe4dd837f9918b67c767544f807284f1e",
+  "frozen_design_commit": "6f4f815a7551244673cb8f0a853f238ad11b8544",
+  "research_hashes": {
+    "frozen_commit": "6f4f815a7551244673cb8f0a853f238ad11b8544",
+    "research_config_hash": "96947d9901b5366246ab1073af7ec17a83cf2bd074ecb0f32f66fcad21a8fe1c",
+    "candidate": "aa0ff14bfa5fe41d0b0767c97090c0b9df70ea8e687594e5c47deed272a55a28",
+    "universe": "73d3fcff3c0b7df72871e6ab72085c3e4afba998ce1f66e31e06705b36d473fb",
+    "feature_set": "cf4e9dab9b20d33cb5c51ecb5cf4c2bdad3282016afbe34e2a6ce9d94e7ad396",
+    "target": "baf60d37d71211e94a2bfeff0027d8a1b4a2e131cf1023e03ce1d289acf35381",
+    "eligibility": "b97cb39dd99e65f9c6ede7a2a34b2e5a2cc55b5dec196117c42f4375c1ece420",
+    "training": "efb523fdec83fcca00c2caea0753188f168f237a8af0f7736af508ef5bccbee4",
+    "strategy": "ce46464d3d33bd20e96c6f429ebad60a991dc284b331f769c457f121ea43b521",
+    "costs": "74114006e731780591dd2a0b8ea9110f1261fe99fe9e8bb7231d326b7b529329",
+    "random_null": "d8661aa1fcaf42ce239865049a9707d41dee2c598faf4de06de7630cfead977e",
+    "acceptance_gates": "5e32900f2c16065d98271b8706b528e8e1682601314207085bdc3b34a9bea6be",
+    "live": {
+      "research_config_hash": "96947d9901b5366246ab1073af7ec17a83cf2bd074ecb0f32f66fcad21a8fe1c",
+      "candidate": "aa0ff14bfa5fe41d0b0767c97090c0b9df70ea8e687594e5c47deed272a55a28",
+      "universe": "73d3fcff3c0b7df72871e6ab72085c3e4afba998ce1f66e31e06705b36d473fb",
+      "feature_set": "cf4e9dab9b20d33cb5c51ecb5cf4c2bdad3282016afbe34e2a6ce9d94e7ad396",
+      "target": "baf60d37d71211e94a2bfeff0027d8a1b4a2e131cf1023e03ce1d289acf35381",
+      "eligibility": "b97cb39dd99e65f9c6ede7a2a34b2e5a2cc55b5dec196117c42f4375c1ece420",
+      "training": "efb523fdec83fcca00c2caea0753188f168f237a8af0f7736af508ef5bccbee4",
+      "strategy": "ce46464d3d33bd20e96c6f429ebad60a991dc284b331f769c457f121ea43b521",
+      "costs": "74114006e731780591dd2a0b8ea9110f1261fe99fe9e8bb7231d326b7b529329",
+      "random_null": "d8661aa1fcaf42ce239865049a9707d41dee2c598faf4de06de7630cfead977e",
+      "acceptance_gates": "5e32900f2c16065d98271b8706b528e8e1682601314207085bdc3b34a9bea6be"
+    }
+  },
+  "uv_lock_sha256": "f89d99621bb7efa00afa5b96faaca1e4ceb76df04fe16d47f08084f01958c571",
+  "python_version": "3.12.7 | packaged by Anaconda, Inc. | (main, Oct  4 2024, 13:17:27) [MSC v.1929 64 bit (AMD64)]",
+  "package_versions": {
+    "numpy": "2.5.3",
+    "pandas": "3.0.6",
+    "scikit-learn": "1.9.1",
+    "scipy": "1.18.1",
+    "exchange-calendars": "4.13.2"
+  },
+  "os_runtime": "Windows-11-10.0.26200-SP0",
+  "v1_model_a_parent_commit": "e5724df4b943006b3f73b4d6333a5177a7b77510",
+  "training_cutoff": "2023-12-22",
+  "t0": "2024-01-02",
+  "expected_cutoff": "2023-12-22",
+  "pre2024_feature_file_manifest_digest": "b27171d35f0dacb2c2b8689a161db8c306739794591a139558aa72020b9abae8",
+  "pre2024_feature_logical_digest": {
+    "content_sha256": "c5fa1699e508f1bdc102d2b208e0f1fc7b7d9a86bffd78786b5192ab39572a16",
+    "schema_sha256": "e92170b8b0a020023086d2c09027a79b190a4d26826345105bd7ea0624b9620c"
+  },
+  "dev_year_min": 2015,
+  "dev_year_max": 2023,
+  "feature_version": "v1",
+  "calendar": "exchange_calendars.XNYS / jevlab.utils.calendar.nyse_session_dates",
+  "code_hashes": {
+    "src/jevlab/v2/candidate.py": "f14badbffecbe8c465668c895b0c6e08f61089b7e9982e7f3a88cc674ac2927c",
+    "src/jevlab/v2/null_engine.py": "6867883ecab2a798fc384212138fa8a923350be128912a9659ed9baff2f5a460",
+    "src/jevlab/v2/acceptance.py": "ec7a26c1c51e1fd24dadd704dc074e638d127d551d5d99f2498c1def66da84c9",
+    "src/jevlab/v2/sealed_run.py": "4cba9948ddea174bc29777723a4b28f1a2d14fddba7453b13700a6582ffb9803",
+    "src/jevlab/v2/sealed_source.py": "b8784c89e34d204e9d892adc6e3128c71379f3521946c2854be89b4b9cc54932",
+    "src/jevlab/v2/training.py": "510257bd69b6873ea84720ccc99df8d8dd46eea74b9df3362e74bb5ee8e9a945",
+    "src/jevlab/v2/statistics.py": "38bf7ac2f396db9231817aa5bf4437fdb91e606b17e8149768b23dc7c9e064a5"
+  },
+  "configured_sealed_path_string": "C:\\Users\\xsaad\\Documents\\jev-trading\\data\\sealed",
+  "sealed_access_log_count": 0,
+  "note": "configured_sealed_path_string is a path identifier only; contents were not listed or read",
+  "integrity_digest": "fcf57c242861b1d42dfde4c08464f27ace3240723aaa093788432d8fe0af0d77"
+}
