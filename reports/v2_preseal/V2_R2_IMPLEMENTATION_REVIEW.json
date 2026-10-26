@@ -10,7 +10,7 @@
   "r1_commit": "05a9f816c950473a5ed9851aa17555dcfd0619c4",
   "r2_tag": "v2-preseal-implementation-r2",
   "r2_tag_not_moved_from_r1": true,
-  "implementation_commit": "pending_tag_peel",
+  "implementation_commit": "1e9fa8629421bfe323a7c52be442147ca77d61b3",
   "prior_authorization_status": "VOID/CLOSED",
   "void_authorization_phrase": "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE",
   "required_authorization_phrase": "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE WITH IMPLEMENTATION R2",

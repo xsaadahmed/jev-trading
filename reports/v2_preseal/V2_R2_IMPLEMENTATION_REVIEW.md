@@ -20,7 +20,8 @@ The authorized r1 sealed attempt correctly stopped before any 2024–2025 read.
 
 ## Implementation r2
 
-- Tag: `v2-preseal-implementation-r2` (created after this packet; peel recorded in the JSON companion)
+- Tag: `v2-preseal-implementation-r2`
+- Implementation commit: `1e9fa8629421bfe323a7c52be442147ca77d61b3`
 - Branch: `v2-baseline-validation`
 - r1 tag was **not** moved
 
