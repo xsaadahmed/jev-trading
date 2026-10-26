@@ -10,13 +10,16 @@ import pytest
 from jevlab.cv.sealed_guard import SEAL_TOKEN_ENV, SealedAccessError
 from jevlab.jev.preconditions import PreconditionError
 from jevlab.utils.registry import init_registry
-from jevlab.v2.acceptance import V2GateMetrics
+from jevlab.v2.rehearsal import synthetic_pre2024_payload
 from jevlab.v2.sealed_run import (
     ATOMIC_STEPS,
     SEAL_BROKEN_STAMP,
+    VOID_AUTHORIZATION_PHRASES,
     ForbiddenRealSealedSource,
+    assert_fresh_r2_authorization,
     run_v2_final_test,
 )
+from jevlab.v2.sealed_source import CountingSealedSource
 
 SEAL = "v2-fixture-seal"
 
@@ -48,53 +51,46 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(SEAL_TOKEN_ENV, SEAL)
 
 
-def test_first_run_fixture_consumes_seal(tmp_path: Path) -> None:
+def test_first_run_fixture_consumes_seal_without_pass(tmp_path: Path) -> None:
     root, acc, seal, reg = _root(tmp_path)
     src = FakeSource()
-    result = run_v2_final_test(
-        root=root,
-        registry_path=reg,
-        acceptance_dir=acc,
-        seal_dir=seal,
-        seal_token=SEAL,
-        metrics=V2GateMetrics(),
-        sealed_source=src,
-        require_git_tags=False,
-        require_preseal_tag=False,
-        require_hashes=False,
-        require_clean_tree=False,
-    )
+    with pytest.raises(ValueError, match="fixture stub"):
+        run_v2_final_test(
+            root=root,
+            registry_path=reg,
+            acceptance_dir=acc,
+            seal_dir=seal,
+            seal_token=SEAL,
+            sealed_source=src,
+            require_git_tags=False,
+            require_preseal_tag=False,
+            require_hashes=False,
+            require_clean_tree=False,
+            require_authorization=False,
+        )
     assert src.loads == 1
-    assert result.acceptance_written is True
-    assert (acc / "V2_SEALED_PASS.json").is_file()
-    assert "read_sealed_or_fixture" in result.step_log
-    assert result.step_log.index("validate_preconditions") < result.step_log.index(
-        "read_sealed_or_fixture"
-    )
-    assert result.step_log.index("read_sealed_or_fixture") < result.step_log.index(
-        "run_random_nulls"
-    )
-    assert result.step_log.index("candidate_backtest") < result.step_log.index("run_random_nulls")
-    recorded = [s for s in result.step_log if s in ATOMIC_STEPS]
-    assert recorded == list(ATOMIC_STEPS)
+    assert not (acc / "V2_SEALED_PASS.json").is_file()
+    state = json.loads((seal / "v2_seal_state.json").read_text(encoding="utf-8"))
+    assert state["seal_opened"] is True
 
 
 def test_second_run_refuses_before_load(tmp_path: Path) -> None:
     root, acc, seal, reg = _root(tmp_path)
     src = FakeSource()
-    run_v2_final_test(
-        root=root,
-        registry_path=reg,
-        acceptance_dir=acc,
-        seal_dir=seal,
-        seal_token=SEAL,
-        metrics=V2GateMetrics(),
-        sealed_source=src,
-        require_git_tags=False,
-        require_preseal_tag=False,
-        require_hashes=False,
-        require_clean_tree=False,
-    )
+    with pytest.raises(ValueError, match="fixture stub"):
+        run_v2_final_test(
+            root=root,
+            registry_path=reg,
+            acceptance_dir=acc,
+            seal_dir=seal,
+            seal_token=SEAL,
+            sealed_source=src,
+            require_git_tags=False,
+            require_preseal_tag=False,
+            require_hashes=False,
+            require_clean_tree=False,
+            require_authorization=False,
+        )
     src2 = FakeSource()
     with pytest.raises(PreconditionError, match="already run"):
         run_v2_final_test(
@@ -103,52 +99,52 @@ def test_second_run_refuses_before_load(tmp_path: Path) -> None:
             acceptance_dir=acc,
             seal_dir=seal,
             seal_token=SEAL,
-            metrics=V2GateMetrics(),
             sealed_source=src2,
             require_git_tags=False,
             require_preseal_tag=False,
             require_hashes=False,
             require_clean_tree=False,
+            require_authorization=False,
         )
     assert src2.loads == 0
 
 
 def test_allow_second_look_breaks_seal_and_never_writes_pass(tmp_path: Path) -> None:
     root, acc, seal, reg = _root(tmp_path)
-    run_v2_final_test(
-        root=root,
-        registry_path=reg,
-        acceptance_dir=acc,
-        seal_dir=seal,
-        seal_token=SEAL,
-        metrics=V2GateMetrics(),
-        sealed_source=FakeSource(),
-        require_git_tags=False,
-        require_preseal_tag=False,
-        require_hashes=False,
-        require_clean_tree=False,
-    )
-    assert (acc / "V2_SEALED_PASS.json").is_file()
-    result = run_v2_final_test(
-        root=root,
-        registry_path=reg,
-        acceptance_dir=acc,
-        seal_dir=seal,
-        seal_token=SEAL,
-        metrics=V2GateMetrics(),
-        sealed_source=FakeSource(),
-        allow_second_look=True,
-        require_git_tags=False,
-        require_preseal_tag=False,
-        require_hashes=False,
-        require_clean_tree=False,
-    )
-    assert result.seal_broken is True
-    assert result.acceptance_written is False
+    with pytest.raises(ValueError, match="fixture stub"):
+        run_v2_final_test(
+            root=root,
+            registry_path=reg,
+            acceptance_dir=acc,
+            seal_dir=seal,
+            seal_token=SEAL,
+            sealed_source=FakeSource(),
+            require_git_tags=False,
+            require_preseal_tag=False,
+            require_hashes=False,
+            require_clean_tree=False,
+            require_authorization=False,
+        )
     assert not (acc / "V2_SEALED_PASS.json").exists()
-    assert (acc / "V2_SEALED_PASS.INVALIDATED.json").is_file()
+    with pytest.raises(ValueError, match="fixture stub"):
+        run_v2_final_test(
+            root=root,
+            registry_path=reg,
+            acceptance_dir=acc,
+            seal_dir=seal,
+            seal_token=SEAL,
+            sealed_source=FakeSource(),
+            allow_second_look=True,
+            require_git_tags=False,
+            require_preseal_tag=False,
+            require_hashes=False,
+            require_clean_tree=False,
+            require_authorization=False,
+        )
+    assert not (acc / "V2_SEALED_PASS.json").exists()
     state = json.loads((seal / "v2_seal_state.json").read_text(encoding="utf-8"))
     assert state["stamp"] == SEAL_BROKEN_STAMP
+    assert state["seal_broken"] is True
 
 
 def test_failed_precondition_does_not_load(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -162,12 +158,12 @@ def test_failed_precondition_does_not_load(tmp_path: Path, monkeypatch: pytest.M
             acceptance_dir=acc,
             seal_dir=seal,
             seal_token=SEAL,
-            metrics=V2GateMetrics(),
             sealed_source=src,
             require_git_tags=False,
             require_preseal_tag=False,
             require_hashes=False,
             require_clean_tree=False,
+            require_authorization=False,
         )
     assert src.loads == 0
 
@@ -175,3 +171,47 @@ def test_failed_precondition_does_not_load(tmp_path: Path, monkeypatch: pytest.M
 def test_forbidden_real_source_never_loads_sealed() -> None:
     with pytest.raises(SealedAccessError, match="not authorized"):
         ForbiddenRealSealedSource().load()
+
+
+def test_void_authorization_is_rejected() -> None:
+    with pytest.raises(PreconditionError, match="VOID"):
+        assert_fresh_r2_authorization(next(iter(VOID_AUTHORIZATION_PHRASES)))
+    with pytest.raises(PreconditionError, match="fresh"):
+        assert_fresh_r2_authorization("")
+
+
+def test_real_compute_records_atomic_steps(tmp_path: Path) -> None:
+    root, acc, seal, reg = _root(tmp_path)
+    payload = synthetic_pre2024_payload(n_sessions=40, n_symbols=4, seed=5)
+    src = CountingSealedSource(payload)
+    result = run_v2_final_test(
+        root=root,
+        registry_path=reg,
+        acceptance_dir=acc,
+        seal_dir=seal,
+        seal_token=SEAL,
+        sealed_source=src,
+        require_git_tags=False,
+        require_preseal_tag=False,
+        require_hashes=False,
+        require_clean_tree=False,
+        require_authorization=False,
+        n=4,
+        allow_reduced_n=True,
+        run_robustness=False,
+        check_fast_first_null=False,
+        result_label="development_rehearsal_only",
+        t0=payload["t0"],
+    )
+    assert src.loads == 1
+    assert result.acceptance_written is False
+    assert not (acc / "V2_SEALED_PASS.json").exists()
+    assert result.step_log.index("validate_preconditions") < result.step_log.index(
+        "read_sealed_or_fixture"
+    )
+    assert result.step_log.index("read_sealed_or_fixture") < result.step_log.index(
+        "construct_features_labels"
+    )
+    assert result.step_log.index("candidate_backtest") < result.step_log.index("run_random_nulls")
+    recorded = [s for s in result.step_log if s in ATOMIC_STEPS]
+    assert recorded == list(ATOMIC_STEPS)

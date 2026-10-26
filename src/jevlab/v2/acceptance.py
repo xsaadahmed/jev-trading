@@ -50,28 +50,32 @@ FROZEN_GATE_MAP: dict[str, tuple[GateId, ...]] = {
 
 @dataclass
 class V2GateMetrics:
-    """Inputs for V2 hard gates. ``None`` ⇒ non-evaluable ⇒ fail closed."""
+    """Inputs for V2 hard gates. ``None`` ⇒ non-evaluable ⇒ fail closed.
 
-    hash_integrity_ok: bool | None = True
-    tag_integrity_ok: bool | None = True
-    research_config_hash_ok: bool | None = True
-    mechanics_ok: bool | None = True
-    leakage_ok: bool | None = True
-    ledger_fast_ok: bool | None = True
-    p_value: float | None = 0.01
-    sharpe_advantage: float | None = 0.20
-    cagr_normal: float | None = 0.05
-    cagr_pessimistic: float | None = 0.01
-    max_drawdown_dec: float | None = -0.20
-    phases_beat_null_median: int | None = 2
-    top5_profitable_share: float | None = 0.10
-    max_etf_positive_share: float | None = 0.20
-    positive_pnl: float | None = 1.0
-    seal_one_shot_ok: bool | None = True
+    Production defaults are unevaluable. Fixture tests must call
+    ``passing_fixture_metrics()`` rather than relying on passing defaults.
+    """
+
+    hash_integrity_ok: bool | None = None
+    tag_integrity_ok: bool | None = None
+    research_config_hash_ok: bool | None = None
+    mechanics_ok: bool | None = None
+    leakage_ok: bool | None = None
+    ledger_fast_ok: bool | None = None
+    p_value: float | None = None
+    sharpe_advantage: float | None = None
+    cagr_normal: float | None = None
+    cagr_pessimistic: float | None = None
+    max_drawdown_dec: float | None = None
+    phases_beat_null_median: int | None = None
+    top5_profitable_share: float | None = None
+    max_etf_positive_share: float | None = None
+    positive_pnl: float | None = None
+    seal_one_shot_ok: bool | None = None
     seal_broken: bool = False
-    sealed_access_count: int | None = 1
-    predictive_log_loss: float | None = 0.9
-    predictive_auc: float | None = 0.4
+    sealed_access_count: int | None = None
+    predictive_log_loss: float | None = None
+    predictive_auc: float | None = None
     robustness_notes: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -81,6 +85,32 @@ class V2GateMetrics:
         base = self.to_dict()
         base.update(overrides)
         return V2GateMetrics(**base)
+
+
+def passing_fixture_metrics() -> V2GateMetrics:
+    """Explicit all-pass fixture for unit tests. Not a production default."""
+    return V2GateMetrics(
+        hash_integrity_ok=True,
+        tag_integrity_ok=True,
+        research_config_hash_ok=True,
+        mechanics_ok=True,
+        leakage_ok=True,
+        ledger_fast_ok=True,
+        p_value=0.01,
+        sharpe_advantage=0.20,
+        cagr_normal=0.05,
+        cagr_pessimistic=0.01,
+        max_drawdown_dec=-0.20,
+        phases_beat_null_median=2,
+        top5_profitable_share=0.10,
+        max_etf_positive_share=0.20,
+        positive_pnl=1.0,
+        seal_one_shot_ok=True,
+        seal_broken=False,
+        sealed_access_count=1,
+        predictive_log_loss=0.9,
+        predictive_auc=0.4,
+    )
 
 
 FROZEN_ALIAS: dict[GateId, str] = {

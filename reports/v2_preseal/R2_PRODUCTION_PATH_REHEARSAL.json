@@ -1,0 +1,44 @@
+{
+  "label": "development_rehearsal_only",
+  "v2_confirmatory_evidence": false,
+  "does_not_alter_gates_or_thresholds": true,
+  "ok": true,
+  "details": {
+    "label": "development_rehearsal_only",
+    "data_period": {
+      "t0": "2021-06-25",
+      "cutoff": "2021-06-18"
+    },
+    "n": 2000,
+    "n_executed": 2000,
+    "null_vector_digest": "cd357551102529816662f14214499a24e9fdbf422969e722d901d476d77915ef",
+    "deterministic_repeat": true,
+    "oracle_gate_comparison": true,
+    "oracle": {
+      "observed_mean_sharpe": -2.464820336367492,
+      "null_median": -1.0736383827015659,
+      "p_value": 0.9245377311344328,
+      "sharpe_advantage": -1.3911819536659262,
+      "cagr_normal": -0.16065543540500493,
+      "cagr_pessimistic": -0.20061651506380473,
+      "max_drawdown_magnitude": 0.02226322226298572,
+      "phase_wins": 0,
+      "top5_profitable_share": 0.558637798425667,
+      "max_etf_positive_share": 0.5174671384049737,
+      "positive_pnl": 5385.482821415571
+    },
+    "observed_mean_sharpe": -2.464820336367492,
+    "p_value": 0.9245377311344328,
+    "advantage": -1.3911819536659262,
+    "runtime_seconds": 918.3255624999292,
+    "fit_count": 1,
+    "C": 0.1,
+    "n_2024_train": 0,
+    "n_2025_train": 0,
+    "dropped_draws": 0,
+    "acceptance_written": false,
+    "does_not_alter_thresholds": true,
+    "v2_confirmatory_evidence": false,
+    "result_path": "reports\\v2_preseal\\production_path_rehearsal_sandbox\\reports\\v2_sealed\\SEALED_RESULT.json"
+  }
+}

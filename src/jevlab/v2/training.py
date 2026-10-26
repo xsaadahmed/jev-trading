@@ -137,21 +137,33 @@ def fit_once_model_a(
 
 
 def score_model_a(fitted: FittedModelA, score_frame: pd.DataFrame) -> pd.DataFrame:
-    """Score rows with the frozen artifact (no refit)."""
+    """Score eligible rows with the frozen artifact (no refit).
+
+    ``y`` may be missing at the sealed boundary; ranking does not require it.
+    Ineligible and incomplete-feature rows are retained with NaN scores.
+    """
     work = score_frame.copy()
     work["date"] = pd.to_datetime(work["date"]).dt.date
-    X, _y, rows = _xy(work, columns=fitted.columns)
-    if rows.empty:
-        out = work.copy()
-        out["prob"] = np.nan
-        out["score"] = np.nan
-        out["model_id"] = "A"
-        out["C"] = fitted.C
-        return out
-    p = predict_proba_positive(fitted.pipeline, X)
-    out = rows.copy()
-    out["prob"] = p
-    out["score"] = p
+    missing = [c for c in fitted.columns if c not in work.columns]
+    if missing:
+        raise TrainingLeakError(f"score frame missing Model A columns: {missing}")
+    out = work.copy()
+    out["prob"] = np.nan
+    out["score"] = np.nan
     out["model_id"] = "A"
     out["C"] = fitted.C
+    elig = (
+        out["eligible"].fillna(0).astype(int) == 1
+        if "eligible" in out.columns
+        else pd.Series(True, index=out.index)
+    )
+    feat = out.loc[:, list(fitted.columns)].apply(pd.to_numeric, errors="coerce")
+    finite = feat.notna().all(axis=1)
+    rows = out.loc[elig & finite]
+    if rows.empty:
+        return out
+    X = feat.loc[rows.index].to_numpy(dtype=float)
+    p = predict_proba_positive(fitted.pipeline, X)
+    out.loc[rows.index, "prob"] = p
+    out.loc[rows.index, "score"] = p
     return out

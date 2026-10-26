@@ -32,6 +32,7 @@ CODE_FILES = (
     "src/jevlab/v2/sealed_source.py",
     "src/jevlab/v2/training.py",
     "src/jevlab/v2/statistics.py",
+    "src/jevlab/v2/evaluate.py",
 )
 
 

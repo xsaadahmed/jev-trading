@@ -31,6 +31,7 @@ reports/acceptance/**
 !reports/acceptance/.gitkeep
 !reports/v2_preseal/
 !reports/v2_preseal/**
+reports/v2_preseal/production_path_rehearsal_sandbox/
 
 # IDE / OS
 .idea/

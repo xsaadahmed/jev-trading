@@ -5,6 +5,7 @@ Never globs ``year=2024`` / ``year=2025`` or ``data/sealed/``.
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -16,6 +17,7 @@ from jevlab.utils.paths import ProjectPaths, get_project_root
 
 DEV_YEAR_MIN = 2015
 DEV_YEAR_MAX = 2023  # inclusive; 2024-2025 never opened
+SEALED_MAX_DATE = date(2025, 12, 31)
 
 
 class SealedPathError(PermissionError):
@@ -108,6 +110,23 @@ def assert_frame_pre_sealed(frame: pd.DataFrame, *, date_col: str = "date") -> N
     dates = pd.to_datetime(frame[date_col]).dt.date
     if (dates > DEV_MAX_DATE).any():
         raise SealedPathError("frame contains dates after 2023-12-29")
+
+
+def assert_frame_date_window(
+    frame: pd.DataFrame,
+    *,
+    date_col: str = "date",
+    allow_sealed_dates: bool = False,
+) -> None:
+    """Pre-2024 by default; authorized sealed path may include through 2025-12-31."""
+    if not allow_sealed_dates:
+        assert_frame_pre_sealed(frame, date_col=date_col)
+        return
+    if frame.empty:
+        return
+    dates = pd.to_datetime(frame[date_col]).dt.date
+    if (dates > SEALED_MAX_DATE).any():
+        raise SealedPathError("frame contains dates after sealed window 2025-12-31")
 
 
 def v1_canonical_artifact_paths() -> dict[str, Path]:

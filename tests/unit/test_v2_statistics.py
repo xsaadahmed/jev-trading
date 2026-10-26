@@ -57,6 +57,8 @@ def test_cagr_and_dd_boundaries() -> None:
     assert e4_pass(-1e-16) is False
     assert e5_pass(-0.35) is True
     assert e5_pass(-0.3500000001) is False
+    assert e5_pass(-0.3500001) is False
+    assert e5_pass(-0.80) is False
     assert e5_pass(float("nan")) is False
     assert e1_pass(float("inf")) is False
     assert e2_pass(float("nan")) is False

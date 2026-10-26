@@ -16,7 +16,7 @@ from jevlab.config.models import RiskConfig
 from jevlab.evaluation.metrics import compute_economic_metrics
 from jevlab.signals.selection import rebalance_dates, select_top_k
 from jevlab.v2.candidate import V2_PHASES, V2_TOP_K, research_risk_config
-from jevlab.v2.dev_io import assert_frame_pre_sealed
+from jevlab.v2.dev_io import assert_frame_date_window
 from jevlab.v2.seed_policy import BASE_SEED, rng_for
 from jevlab.v2.seed_policy import child_seed as child_seed
 from jevlab.v2.seed_policy import seed_policy_dict as seed_policy_dict
@@ -34,9 +34,10 @@ def randomize_ranking(
     k: int = V2_TOP_K,
     every: int = 3,
     base_seed: int = BASE_SEED,
+    allow_sealed_dates: bool = False,
 ) -> pd.DataFrame:
     """Replace scores among eligible names only; keep dates/eligibility/K."""
-    assert_frame_pre_sealed(scores)
+    assert_frame_date_window(scores, allow_sealed_dates=allow_sealed_dates)
     frame = scores.copy()
     frame["date"] = pd.to_datetime(frame["date"]).dt.date
     reb = set(rebalance_dates(sessions, every=every, phase=phase))
@@ -121,10 +122,11 @@ def run_null_draw(
     metric_end: date | None,
     check_fast: bool = False,
     base_seed: int = BASE_SEED,
+    allow_sealed_dates: bool = False,
 ) -> NullDrawResult:
     """One randomization draw: ranking only; same mechanics as Model A."""
-    assert_frame_pre_sealed(bars)
-    assert_frame_pre_sealed(model_a_scores)
+    assert_frame_date_window(bars, allow_sealed_dates=allow_sealed_dates)
+    assert_frame_date_window(model_a_scores, allow_sealed_dates=allow_sealed_dates)
     risk = risk_config or research_risk_config()
     out = NullDrawResult(draw_id=draw_id)
     sharpes: list[float] = []
@@ -136,6 +138,7 @@ def run_null_draw(
             sessions=sessions,
             k=top_k,
             base_seed=base_seed,
+            allow_sealed_dates=allow_sealed_dates,
         )
         out.selections[phase] = selected
         sh, _ledger = _backtest_sharpe(
@@ -195,4 +198,3 @@ def compare_to_null(
     observed_mean_sharpe: float, null_stats: np.ndarray, *, n: int | None = None
 ) -> NullTestResult:
     return evaluate_randomization(observed_mean_sharpe, null_stats, n=n)
-

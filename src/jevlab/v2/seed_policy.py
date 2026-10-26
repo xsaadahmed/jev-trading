@@ -56,9 +56,7 @@ def child_seed(
         raise ValueError(f"draw_id must be in [{DRAW_ID_MIN}, {DRAW_ID_MAX}]")
     if phase not in V2_PHASES:
         raise ValueError(f"phase must be in {V2_PHASES}")
-    canonical = child_canonical_string(
-        draw_id, phase, namespace=namespace, base_seed=base_seed
-    )
+    canonical = child_canonical_string(draw_id, phase, namespace=namespace, base_seed=base_seed)
     digest = hashlib.sha256(canonical.encode("utf-8")).digest()
     return int.from_bytes(digest[:CHILD_SEED_BYTES], byteorder="big", signed=False)
 
@@ -72,9 +70,7 @@ def rng_for(
 ) -> np.random.Generator:
     """``Generator(PCG64(child_seed))`` with the 128-bit SHA-256 child seed."""
     return np.random.Generator(
-        np.random.PCG64(
-            child_seed(draw_id, phase, namespace=namespace, base_seed=base_seed)
-        )
+        np.random.PCG64(child_seed(draw_id, phase, namespace=namespace, base_seed=base_seed))
     )
 
 

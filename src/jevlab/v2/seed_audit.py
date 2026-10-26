@@ -74,9 +74,7 @@ def audit_revision1_uniqueness(
     if digest_unique != n_unique:
         raise AssertionError("mapping digest unique count drifted")
     if n_unique != n_pairs:
-        raise AssertionError(
-            f"STOP: unique_child_seeds={n_unique} != requested={n_pairs}"
-        )
+        raise AssertionError(f"STOP: unique_child_seeds={n_unique} != requested={n_pairs}")
     if colliding:
         raise AssertionError(f"STOP: child seed maps to multiple pairs: {len(colliding)}")
     if len(by_pair) != n_pairs:

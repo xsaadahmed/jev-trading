@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import math
+import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,7 +30,7 @@ from jevlab.v2.candidate import (
     run_model_a_backtest,
 )
 from jevlab.v2.dev_io import assert_frame_pre_sealed
-from jevlab.v2.null_engine import run_null_distribution, run_null_draw
+from jevlab.v2.null_engine import run_null_draw
 from jevlab.v2.statistics import FROZEN_N, evaluate_randomization
 from jevlab.v2.training import fit_once_model_a, score_model_a
 
@@ -47,6 +52,28 @@ class RehearsalResult:
             "ok": self.ok,
             "details": self.details,
         }
+
+
+def synthetic_pre2024_payload(
+    *,
+    n_sessions: int = 80,
+    n_symbols: int = 6,
+    seed: int = 7,
+) -> dict[str, Any]:
+    """Pre-2024 pseudo-sealed payload. Never includes 2024-2025 rows."""
+    frame, bars = _synthetic_panel(n_sessions=n_sessions, n_symbols=n_symbols, seed=seed)
+    assert_frame_pre_sealed(frame)
+    assert_frame_pre_sealed(bars)
+    sessions = sorted(frame["date"].unique().tolist())
+    t0 = sessions[len(sessions) // 2]
+    return {
+        "features": frame,
+        "labels": frame,
+        "bars": bars,
+        "t0": t0,
+        "pseudo": True,
+        "label": REHEARSAL_LABEL,
+    }
 
 
 def _synthetic_panel(
@@ -209,93 +236,150 @@ def null_vector_digest(stats: np.ndarray) -> str:
     return sha256_of(canonical_json(payload))
 
 
-def run_full_n_rehearsal(*, repeat: bool = True) -> RehearsalResult:
-    """Software validation with frozen N=2000. Not V2 evidence. Does not alter gates."""
-    import time
+def _finite_close(a: Any, b: Any, *, atol: float = 1e-12) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    fa = float(a)
+    fb = float(b)
+    if not math.isfinite(fa) and not math.isfinite(fb):
+        return True
+    return abs(fa - fb) <= atol
 
-    frame, bars = _synthetic_panel(n_sessions=36, n_symbols=4, seed=11)
-    assert_frame_pre_sealed(frame)
-    assert_frame_pre_sealed(bars)
-    sessions = sorted(frame["date"].unique().tolist())
-    t0 = sessions[len(sessions) // 2]
-    cutoff = embargo_cutoff_date(sessions, t0, embargo_sessions=5)
-    assert cutoff is not None
-    train = frame.loc[frame["date"] <= cutoff]
-    score = frame.loc[frame["date"] >= t0]
-    fitted = fit_once_model_a(train, sessions=sessions, t0=t0, cutoff=cutoff)
-    preds = score_model_a(fitted, score)
-    if "score" not in preds.columns:
-        preds["score"] = preds["prob"]
-    cost_n = research_cost_model("normal")
-    risk = research_risk_config()
-    phase_sharpe: dict[int, float] = {}
-    for phase in V2_PHASES:
-        _ledger, _fast, m_n = run_model_a_backtest(
-            bars,
-            preds,
-            phase=phase,
-            cost=cost_n,
-            risk_config=risk,
-            metric_start=t0,
-            metric_end=sessions[-1],
+
+def run_production_path_rehearsal(
+    *,
+    n: int = FROZEN_N,
+    repeat: bool = True,
+    n_sessions: int = 36,
+    n_symbols: int = 4,
+    seed: int = 11,
+    run_robustness: bool = False,
+    sandbox_root: Path | None = None,
+) -> RehearsalResult:
+    """Actual production computational path on a PRE-2024 pseudo-sealed source."""
+    from jevlab.utils.registry import init_registry
+    from jevlab.v2.acceptance import phases_beating_null
+    from jevlab.v2.evaluate import oracle_from_artifacts
+    from jevlab.v2.sealed_run import run_v2_final_test
+    from jevlab.v2.sealed_source import CountingSealedSource
+
+    payload = synthetic_pre2024_payload(n_sessions=n_sessions, n_symbols=n_symbols, seed=seed)
+    t0 = payload["t0"]
+    tmp_root = sandbox_root or Path("reports") / "v2_preseal" / "production_path_rehearsal_sandbox"
+    if tmp_root.exists():
+        shutil.rmtree(tmp_root)
+    (tmp_root / "data" / "sealed").mkdir(parents=True)
+    acc = tmp_root / "reports" / "acceptance"
+    seal = tmp_root / "reports" / "v2_sealed"
+    acc.mkdir(parents=True)
+    seal.mkdir(parents=True)
+    (tmp_root / "registry").mkdir()
+    reg = tmp_root / "registry" / "experiments.sqlite"
+    init_registry(reg)
+
+    def _run(seal_dir: Path, acc_dir: Path, *, check_fast: bool) -> Any:
+        return run_v2_final_test(
+            root=tmp_root,
+            registry_path=reg,
+            acceptance_dir=acc_dir,
+            seal_dir=seal_dir,
+            seal_token="unused",
+            sealed_source=CountingSealedSource(payload),
+            require_clean_tree=False,
+            require_git_tags=False,
+            require_preseal_tag=False,
+            require_hashes=False,
+            require_seal_token=False,
+            require_authorization=False,
+            record_sealed_access=False,
+            n=n,
+            allow_reduced_n=n != FROZEN_N,
+            allow_sealed_dates=False,
+            result_label=REHEARSAL_LABEL,
+            t0=t0,
+            run_robustness=run_robustness,
+            check_fast_first_null=check_fast,
         )
-        phase_sharpe[phase] = float(m_n["sharpe"])
-    observed = float(sum(phase_sharpe.values()) / 3.0)
-    t0_run = time.perf_counter()
-    null_stats = run_null_distribution(
-        bars,
-        preds,
-        sessions=sessions,
-        cost=cost_n,
-        n=FROZEN_N,
-        allow_reduced_n=False,
-        risk_config=risk,
-        metric_start=t0,
-        metric_end=sessions[-1],
-        check_fast=False,
+
+    t_start = time.perf_counter()
+    result = _run(seal, acc, check_fast=True)
+    elapsed = time.perf_counter() - t_start
+    if result.acceptance_written or (acc / "V2_SEALED_PASS.json").exists():
+        return RehearsalResult(ok=False, details={"error": "rehearsal wrote V2_SEALED_PASS"})
+    assert result.result_path is not None
+    body = json.loads(result.result_path.read_text(encoding="utf-8"))
+    details = body["details"]
+    null_stats = np.asarray(details["null_vector"], dtype=float)
+    observed = float(body["observed_mean_sharpe"])
+    oracle = oracle_from_artifacts(details, null_stats, observed)
+    expected_wins = phases_beating_null(
+        {int(k): float(v) for k, v in details["phase_sharpe_normal"].items()},
+        {int(k): float(v) for k, v in details["phase_null_medians"].items()},
     )
-    elapsed = time.perf_counter() - t0_run
-    if len(null_stats) != FROZEN_N:
-        return RehearsalResult(
-            ok=False, details={"error": "N silently changed", "n": len(null_stats)}
+    oracle_ok = (
+        _finite_close(oracle["p_value"], body["p_value"])
+        and _finite_close(oracle["sharpe_advantage"], body["sharpe_advantage"])
+        and _finite_close(oracle["observed_mean_sharpe"], observed)
+        and _finite_close(oracle["null_median"], details["null_median"])
+        and _finite_close(
+            oracle["cagr_normal"],
+            sum(float(v) for v in details["phase_cagr_normal"].values()) / 3.0,
         )
-    digest = null_vector_digest(null_stats)
+        and _finite_close(
+            oracle["cagr_pessimistic"],
+            sum(float(v) for v in details["phase_cagr_pessimistic"].values()) / 3.0,
+        )
+        and _finite_close(
+            oracle["max_drawdown_magnitude"],
+            abs(min(float(v) for v in details["phase_max_drawdown"].values())),
+        )
+        and oracle["phase_wins"] == expected_wins
+        and _finite_close(
+            oracle["top5_profitable_share"], details["concentration"]["top5_profitable_share"]
+        )
+        and _finite_close(
+            oracle["max_etf_positive_share"], details["concentration"]["max_etf_positive_share"]
+        )
+    )
     repeat_ok = True
     if repeat:
-        null_stats_2 = run_null_distribution(
-            bars,
-            preds,
-            sessions=sessions,
-            cost=cost_n,
-            n=FROZEN_N,
-            allow_reduced_n=False,
-            risk_config=risk,
-            metric_start=t0,
-            metric_end=sessions[-1],
-            check_fast=False,
-        )
-        repeat_ok = null_vector_digest(null_stats_2) == digest
-        observed_2 = float(sum(phase_sharpe.values()) / 3.0)
-        repeat_ok = repeat_ok and observed_2 == observed
-    test = evaluate_randomization(observed, null_stats, n=FROZEN_N)
-    nan_fail_closed = bool(np.isnan(null_stats).any())
+        seal2 = tmp_root / "reports" / "v2_sealed_repeat"
+        acc2 = tmp_root / "reports" / "acceptance_repeat"
+        seal2.mkdir(parents=True)
+        acc2.mkdir(parents=True)
+        result2 = _run(seal2, acc2, check_fast=False)
+        assert result2.result_path is not None
+        body2 = json.loads(result2.result_path.read_text(encoding="utf-8"))
+        repeat_ok = body2["details"]["null_vector_digest"] == details["null_vector_digest"]
+        repeat_ok = repeat_ok and body2["observed_mean_sharpe"] == observed
     return RehearsalResult(
-        ok=repeat_ok and fitted.fit_count == 1,
+        ok=repeat_ok and oracle_ok and details["fit_count"] == 1 and details["dropped_draws"] == 0,
         details={
             "label": REHEARSAL_LABEL,
-            "n": FROZEN_N,
-            "n_executed": len(null_stats),
-            "null_vector_digest": digest,
+            "data_period": {"t0": str(t0), "cutoff": details["cutoff"]},
+            "n": n,
+            "n_executed": details["n_executed"],
+            "null_vector_digest": details["null_vector_digest"],
             "deterministic_repeat": repeat_ok,
+            "oracle_gate_comparison": oracle_ok,
+            "oracle": oracle,
             "observed_mean_sharpe": observed,
-            "p_value": test.p_value,
-            "advantage": test.advantage,
-            "median_null": float(np.median(null_stats)),
+            "p_value": body["p_value"],
+            "advantage": body["sharpe_advantage"],
             "runtime_seconds": elapsed,
-            "nan_draws": int(np.isnan(null_stats).sum()),
-            "nan_fail_closed": nan_fail_closed,
-            "fit_count": fitted.fit_count,
+            "fit_count": details["fit_count"],
+            "C": details["C"],
+            "n_2024_train": details["n_2024_train"],
+            "n_2025_train": details["n_2025_train"],
+            "dropped_draws": details["dropped_draws"],
+            "acceptance_written": result.acceptance_written,
             "does_not_alter_thresholds": True,
             "v2_confirmatory_evidence": False,
+            "result_path": str(result.result_path),
         },
     )
+
+
+def run_full_n_rehearsal(*, repeat: bool = True) -> RehearsalResult:
+    """Software validation with frozen N=2000 via the production computational path."""
+    return run_production_path_rehearsal(n=FROZEN_N, repeat=repeat, run_robustness=False)

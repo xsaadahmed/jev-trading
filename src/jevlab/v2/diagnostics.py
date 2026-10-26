@@ -8,6 +8,7 @@ import pandas as pd
 
 from jevlab.evaluation.bootstrap import (
     DEFAULT_MEAN_BLOCK,
+    DEFAULT_N_DRAWS,
     DEFAULT_SEED,
     bootstrap_statistic_on_dates,
 )
@@ -37,8 +38,12 @@ def predictive_diagnostics(preds: pd.DataFrame) -> dict[str, Any]:
     work = preds.copy()
     if "eligible" in work.columns:
         work = work.loc[work["eligible"].fillna(0).astype(int) == 1]
-    y = work["y"].to_numpy(dtype=float) if "y" in work.columns else None
-    p = work["prob"].to_numpy(dtype=float) if "prob" in work.columns else None
+    if "y" in work.columns and "prob" in work.columns:
+        y_num = pd.to_numeric(work["y"], errors="coerce")
+        p_num = pd.to_numeric(work["prob"], errors="coerce")
+        work = work.loc[y_num.notna() & p_num.notna()].copy()
+    y = work["y"].to_numpy(dtype=float) if "y" in work.columns and not work.empty else None
+    p = work["prob"].to_numpy(dtype=float) if "prob" in work.columns and not work.empty else None
     out: dict[str, Any] = {
         "role": "secondary_diagnostics_only",
         "participates_in_v2_sealed_pass": False,
@@ -54,7 +59,7 @@ def predictive_diagnostics(preds: pd.DataFrame) -> dict[str, Any]:
                 list(range(len(ics))),
                 lambda idx: float(sum(ics[i] for i in idx) / len(idx)),
                 mean_block=DEFAULT_MEAN_BLOCK,
-                n_draws=200,
+                n_draws=DEFAULT_N_DRAWS,
                 seed=DEFAULT_SEED,
             )
             out["rank_ic_bootstrap"] = ci.to_dict()

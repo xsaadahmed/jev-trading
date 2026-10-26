@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 
 from jevlab.experiments.artifacts import ArtifactError
-from jevlab.v2.acceptance import GATE_IDS, V2GateMetrics, evaluate_v2_gates
+from jevlab.v2.acceptance import GATE_IDS, V2GateMetrics, evaluate_v2_gates, passing_fixture_metrics
 from jevlab.v2.artifacts import verify_result_artifact, verify_v2_sealed_pass, write_v2_sealed_pass
 from jevlab.v2.diagnostics import gates_ignore_diagnostics
 
 
 def _pass(**overrides: object) -> V2GateMetrics:
-    m = V2GateMetrics()
+    m = passing_fixture_metrics()
     return m.with_overrides(**overrides) if overrides else m
 
 

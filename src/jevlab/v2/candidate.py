@@ -27,7 +27,7 @@ from jevlab.models.pipelines import (
 )
 from jevlab.portfolio.sizing import equal_weight_notionals
 from jevlab.signals.selection import rebalance_dates, select_top_k
-from jevlab.v2.dev_io import assert_frame_pre_sealed
+from jevlab.v2.dev_io import assert_frame_date_window, assert_frame_pre_sealed
 from jevlab.v2.hashes import assert_frozen_research_hashes
 
 V2_UNIVERSE: tuple[str, ...] = (
@@ -177,10 +177,11 @@ def run_model_a_backtest(
     fill_mode: FillMode = "open_t1",
     metric_start: date | None = OOS_START,
     metric_end: date | None = OOS_END,
+    allow_sealed_dates: bool = False,
 ) -> tuple[LedgerResult, LedgerResult, dict[str, float]]:
     """Ledger + fast Model A backtest; research kill-switch off."""
-    assert_frame_pre_sealed(bars)
-    assert_frame_pre_sealed(scores)
+    assert_frame_date_window(bars, allow_sealed_dates=allow_sealed_dates)
+    assert_frame_date_window(scores, allow_sealed_dates=allow_sealed_dates)
     risk = risk_config or research_risk_config()
     kwargs: dict[str, Any] = dict(
         cost=cost,
