@@ -33,6 +33,8 @@ CODE_FILES = (
     "src/jevlab/v2/training.py",
     "src/jevlab/v2/statistics.py",
     "src/jevlab/v2/evaluate.py",
+    "src/jevlab/v2/causal.py",
+    "src/jevlab/v2/model_artifact.py",
 )
 
 
@@ -114,6 +116,10 @@ def build_preseal_snapshot(*, root: Path | None = None) -> dict[str, Any]:
         {k: v for k, v in payload.items() if k != "integrity_digest"}
     )
     return payload
+
+
+def git_head(root: Path) -> str:
+    return _git_head(root)
 
 
 def _git_head(root: Path) -> str:

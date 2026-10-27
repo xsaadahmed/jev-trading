@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,10 +14,11 @@ from jevlab.config.v2_research import EXPECTED_T0, EXPECTED_TRAINING_CUTOFF
 from jevlab.cv.purge import embargo_cutoff_date
 from jevlab.cv.walkforward import make_inner_folds
 from jevlab.features.columns import MODEL_A_COLUMNS
-from jevlab.models.logistic import predict_proba_positive
+from jevlab.models.logistic import fitted_scaler_mean, predict_proba_positive
 from jevlab.models.pipelines import _select_C_inner, _xy
 from jevlab.models.transforms import make_lineup_logistic_pipeline
 from jevlab.utils.calendar import nyse_session_dates
+from jevlab.utils.hashing import canonical_json, logical_table_digest, sha256_of
 from jevlab.v2.candidate import V2_C_GRID, V2_EMBARGO, V2_SEED
 from jevlab.v2.dev_io import assert_frame_pre_sealed
 
@@ -167,3 +169,49 @@ def score_model_a(fitted: FittedModelA, score_frame: pd.DataFrame) -> pd.DataFra
     out.loc[rows.index, "prob"] = p
     out.loc[rows.index, "score"] = p
     return out
+
+
+def training_row_digest(train: pd.DataFrame) -> dict[str, str]:
+    keep = [c for c in ("symbol", "date", "y", *MODEL_A_COLUMNS) if c in train.columns]
+    return logical_table_digest(train.loc[:, keep], primary_key=["symbol", "date"])
+
+
+def preprocessing_logical_digest(fitted: FittedModelA) -> str:
+    scaler = fitted.pipeline.named_steps["scaler"]
+    payload: dict[str, Any] = {
+        "scaler_mean": [float(x) for x in np.asarray(fitted_scaler_mean(fitted.pipeline)).ravel()],
+        "scaler_scale": [float(x) for x in np.asarray(scaler.scale_).ravel()],
+        "columns": list(fitted.columns),
+        "C": float(fitted.C),
+        "seed": int(fitted.seed),
+    }
+    return sha256_of(canonical_json(payload))
+
+
+def logical_model_digest(fitted: FittedModelA) -> str:
+    """Digest of learned parameters/config. Independent of pickle metadata."""
+    clf = fitted.pipeline.named_steps["clf"]
+    scaler = fitted.pipeline.named_steps["scaler"]
+    payload: dict[str, Any] = {
+        "C": float(fitted.C),
+        "cutoff": str(fitted.cutoff),
+        "n_train_rows": int(fitted.n_train_rows),
+        "fit_count": int(fitted.fit_count),
+        "seed": int(fitted.seed),
+        "columns": list(fitted.columns),
+        "coef": [float(x) for x in np.asarray(clf.coef_).ravel()],
+        "intercept": [float(x) for x in np.asarray(clf.intercept_).ravel()],
+        "classes": [int(x) for x in np.asarray(clf.classes_).ravel()],
+        "scaler_mean": [float(x) for x in np.asarray(scaler.mean_).ravel()],
+        "scaler_scale": [float(x) for x in np.asarray(scaler.scale_).ravel()],
+    }
+    return sha256_of(canonical_json(payload))
+
+
+def assert_no_sealed_training_years(train: pd.DataFrame) -> tuple[int, int]:
+    years = pd.to_datetime(train["date"]).dt.date.map(lambda d: d.year)
+    n_2024 = int((years == 2024).sum())
+    n_2025 = int((years == 2025).sum())
+    if n_2024 or n_2025:
+        raise TrainingLeakError("training rows from 2024 or 2025")
+    return n_2024, n_2025

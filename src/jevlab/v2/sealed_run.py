@@ -21,17 +21,20 @@ from jevlab.jev.preconditions import PreconditionError, git_tag_exists, git_work
 from jevlab.utils.hashing import canonical_json, sha256_of
 from jevlab.v2.acceptance import V2GateReport
 from jevlab.v2.artifacts import atomic_write_json, invalidate_v2_sealed_pass, write_v2_sealed_pass
+from jevlab.v2.causal import construct_combined_study_frames
 from jevlab.v2.evaluate import (
     InjectedCrash,
     construct_study_frames,
-    evaluate_v2_study,
     json_safe,
     payload_t0,
+    score_sealed_study,
 )
 from jevlab.v2.hashes import (
     FROZEN_COMMIT,
+    FROZEN_IMPLEMENTATION_REVISION,
     FROZEN_PRESEAL_IMPL_TAG,
     FROZEN_PRESEAL_IMPL_TAG_R1,
+    FROZEN_PRESEAL_IMPL_TAG_R2,
     FROZEN_TAG_DESIGN,
     FROZEN_TAG_DESIGN_R1,
     FROZEN_TAG_PREREG,
@@ -39,10 +42,15 @@ from jevlab.v2.hashes import (
     FrozenHashError,
     assert_frozen_research_hashes,
 )
+from jevlab.v2.model_artifact import (
+    SealedTestModelArtifact,
+    assert_artifact_matches_freeze,
+    load_sealed_test_model,
+)
 from jevlab.v2.rehearsal import REHEARSAL_LABEL
-from jevlab.v2.sealed_source import ProductionSealedSource
+from jevlab.v2.sealed_source import PreSealedTrainingSource, ProductionSealedSource
 from jevlab.v2.statistics import FROZEN_N
-from jevlab.v2.training import SEALED_T0
+from jevlab.v2.training import SEALED_T0, FittedModelA, TrainingLeakError
 
 SEAL_BROKEN_STAMP = "SEAL BROKEN"
 SEAL_STATE_FILENAME = "v2_seal_state.json"
@@ -50,17 +58,21 @@ V2_SEAL_REASON = "v2-final-test-sealed-score"
 VOID_AUTHORIZATION_PHRASES: frozenset[str] = frozenset(
     {
         "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE",
+        "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE WITH IMPLEMENTATION R2",
+        "OPEN V2 R1 IMPLEMENTATION R2 SEALED HOLDOUT ONCE",
     }
 )
-REQUIRED_AUTHORIZATION_PHRASE = "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE WITH IMPLEMENTATION R2"
+REQUIRED_AUTHORIZATION_PHRASE = "OPEN V2 R1 IMPLEMENTATION R3 SEALED HOLDOUT ONCE"
 ATOMIC_STEPS: tuple[str, ...] = (
     "validate_preconditions",
     "append_sealed_access_record",
     "read_sealed_or_fixture",
     "construct_features_labels",
-    "fit_once_pre_sealed",
-    "archive_training_artifact",
+    "load_prebuilt_model",
     "score_entire_period",
+    "candidate_backtest_phase_0",
+    "candidate_backtest_phase_1",
+    "candidate_backtest_phase_2",
     "candidate_backtest",
     "run_random_nulls",
     "calculate_hard_gates",
@@ -83,19 +95,33 @@ def _maybe_crash(fail_after: str | None, step: str) -> None:
         raise InjectedCrash(f"injected crash after {step}")
 
 
-def assert_fresh_r2_authorization(authorization: str) -> None:
-    """Reject the closed r1 authorization; require a new r2 phrase."""
+def assert_fresh_r3_authorization(
+    authorization: str,
+    *,
+    implementation_tag: str = FROZEN_PRESEAL_IMPL_TAG,
+) -> None:
+    """Reject closed r1/r2 phrases; require the exact r3 phrase for r3 only."""
     phrase = (authorization or "").strip()
     if phrase in VOID_AUTHORIZATION_PHRASES:
         raise PreconditionError(
-            "prior human authorization is VOID/CLOSED; implementation r1 never "
-            "consumed the seal and cannot be reused"
+            "prior human authorization is VOID/CLOSED; r1 and r2 never consumed "
+            "the seal and cannot be reused"
         )
     if phrase != REQUIRED_AUTHORIZATION_PHRASE:
         raise PreconditionError(
             "fresh explicit human authorization is required after "
-            f"{FROZEN_PRESEAL_IMPL_TAG}; the prior r1 authorization is void"
+            f"{FROZEN_PRESEAL_IMPL_TAG}; prior r1/r2 authorizations are void"
         )
+    if implementation_tag != FROZEN_PRESEAL_IMPL_TAG:
+        raise PreconditionError(
+            "r3 authorization phrase cannot authorize any implementation other "
+            f"than {FROZEN_PRESEAL_IMPL_TAG}"
+        )
+
+
+def assert_fresh_r2_authorization(authorization: str) -> None:
+    """r2 authorization is VOID/CLOSED."""
+    assert_fresh_r3_authorization(authorization)
 
 
 @dataclass
@@ -210,19 +236,37 @@ def assert_v2_final_test_preconditions(
         if not is_ancestor(prereg_r1, cwd=root):
             raise PreconditionError("HEAD is not a descendant of the revision-1 design freeze")
         checks["descendant_r1"] = "yes"
-        if FROZEN_PRESEAL_IMPL_TAG == FROZEN_PRESEAL_IMPL_TAG_R1:
+        if FROZEN_PRESEAL_IMPL_TAG in {FROZEN_PRESEAL_IMPL_TAG_R1, FROZEN_PRESEAL_IMPL_TAG_R2}:
             raise PreconditionError(
-                "v2-preseal-implementation-r1 is provenance only and is not execution-capable"
+                "v2-preseal-implementation-r1/r2 are audit artifacts and are not "
+                "execution-capable after implementation r3"
             )
-        if require_preseal_tag and not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG, cwd=root):
-            raise PreconditionError(
-                f"missing {FROZEN_PRESEAL_IMPL_TAG} (required for the real sealed run); "
-                f"{FROZEN_PRESEAL_IMPL_TAG_R1} is preserved as an incomplete audit artifact"
-            )
-        checks["preseal_tag"] = (
-            "present" if git_tag_exists(FROZEN_PRESEAL_IMPL_TAG, cwd=root) else "skipped"
-        )
+        if require_preseal_tag:
+            if not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG_R1, cwd=root):
+                raise PreconditionError(f"missing audit tag {FROZEN_PRESEAL_IMPL_TAG_R1}")
+            if not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG_R2, cwd=root):
+                raise PreconditionError(f"missing audit tag {FROZEN_PRESEAL_IMPL_TAG_R2}")
+            if not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG, cwd=root):
+                raise PreconditionError(
+                    f"missing {FROZEN_PRESEAL_IMPL_TAG} (required for the real sealed run); "
+                    f"{FROZEN_PRESEAL_IMPL_TAG_R1} and {FROZEN_PRESEAL_IMPL_TAG_R2} "
+                    "remain immutable audit artifacts"
+                )
+            r1_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG_R1, cwd=root)
+            r2_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG_R2, cwd=root)
+            r3_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG, cwd=root)
+            if not r3_impl:
+                raise PreconditionError("r3 implementation tag could not be peeled")
+            if r3_impl in {r1_impl, r2_impl}:
+                raise PreconditionError("r3 tag must not move r1 or r2")
+            checks["preseal_tag_r1_audit"] = r1_impl
+            checks["preseal_tag_r2_audit"] = r2_impl
+            checks["preseal_tag"] = r3_impl
+            checks["implementation_revision"] = str(FROZEN_IMPLEMENTATION_REVISION)
+        else:
+            checks["preseal_tag"] = "skipped"
         checks["preseal_tag_r1_not_execution"] = FROZEN_PRESEAL_IMPL_TAG_R1
+        checks["preseal_tag_r2_not_execution"] = FROZEN_PRESEAL_IMPL_TAG_R2
     if require_hashes:
         try:
             assert_frozen_research_hashes(root=root)
@@ -275,10 +319,15 @@ def run_v2_preflight(
     require_git_tags: bool = True,
     require_preseal_tag: bool = True,
     require_hashes: bool = True,
+    training_source: PreSealedTrainingSource | None = None,
+    model_artifact_path: Path | None = None,
+    require_prebuilt_model: bool = False,
+    model_freeze: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Terminate before SEAL authorization and before any sealed read.
 
-    May check configured-path existence without listing contents.
+    May read pre-2024 training/context and the frozen model artifact.
+    Must not read 2024-2025 sealed contents.
     """
     source = ProductionSealedSource(configured_sealed_path)
     checks = assert_v2_final_test_preconditions(
@@ -291,16 +340,36 @@ def run_v2_preflight(
         require_hashes=require_hashes,
         require_seal_token=False,
     )
+    training_reads = 0
+    if training_source is not None:
+        training_source.load()
+        training_reads = int(training_source.training_context_reads)
+        checks["training_context_reads"] = str(training_reads)
+        checks["training_sealed_underlying_reads"] = str(training_source.sealed_underlying_reads)
+        if training_source.sealed_underlying_reads != 0:
+            raise AssertionError("preflight read sealed underlying via training source")
+    if require_prebuilt_model:
+        if model_artifact_path is None:
+            raise PreconditionError("prebuilt sealed-test-model artifact is required")
+        artifact = load_sealed_test_model(model_artifact_path)
+        if model_freeze:
+            assert_artifact_matches_freeze(artifact, expected=model_freeze)
+        checks["prebuilt_model"] = artifact.integrity_digest
+        checks["chosen_C"] = str(artifact.chosen_C)
+        checks["model_logical_digest"] = str(artifact.manifest["fitted_model_digest"])
     exists = configured_sealed_path.exists()
     checks["configured_sealed_path"] = source.configured_path_string()
     checks["configured_path_exists"] = "yes" if exists else "no"
     checks["filesystem_reads"] = str(source.filesystem_reads)
+    checks["sealed_underlying_reads"] = str(source.filesystem_reads)
     if source.filesystem_reads != 0:
         raise AssertionError("preflight performed a sealed filesystem read")
     return {
         "preflight": True,
         "sealed_read": False,
         "filesystem_reads": source.filesystem_reads,
+        "training_context_reads": training_reads,
+        "sealed_underlying_reads": source.filesystem_reads,
         "checks": checks,
     }
 
@@ -331,13 +400,20 @@ def run_v2_final_test(
     t0: Any | None = None,
     run_robustness: bool = True,
     check_fast_first_null: bool = True,
+    fitted_model: FittedModelA | None = None,
+    model_artifact: SealedTestModelArtifact | None = None,
+    model_artifact_path: Path | None = None,
+    training_source: PreSealedTrainingSource | None = None,
+    require_prebuilt_model: bool = False,
+    model_freeze: dict[str, Any] | None = None,
+    implementation_tag: str = FROZEN_PRESEAL_IMPL_TAG,
 ) -> V2FinalTestResult:
     """Atomic sealed path. Gate metrics come only from computed artifacts."""
     log = AtomicStepLog()
     log.record("validate_preconditions")
     _maybe_crash(fail_after, "validate_preconditions")
     if require_authorization:
-        assert_fresh_r2_authorization(authorization)
+        assert_fresh_r3_authorization(authorization, implementation_tag=implementation_tag)
     state = read_seal_state(seal_dir)
     seal_broken = bool(state.get("seal_broken"))
     if state.get("seal_opened") and not allow_second_look:
@@ -345,6 +421,22 @@ def run_v2_final_test(
             "V2 sealed evaluation already run; pass --allow-second-look "
             f"(will stamp '{SEAL_BROKEN_STAMP}' and never write V2_SEALED_PASS)"
         )
+
+    loaded_artifact = model_artifact
+    if model_artifact_path is not None and loaded_artifact is None:
+        loaded_artifact = load_sealed_test_model(model_artifact_path)
+        if model_freeze is not None:
+            assert_artifact_matches_freeze(loaded_artifact, expected=model_freeze)
+    if fitted_model is None and loaded_artifact is not None:
+        fitted_model = loaded_artifact.fitted
+    if require_prebuilt_model and fitted_model is None:
+        raise PreconditionError("prebuilt sealed-test-model artifact is required")
+
+    history_payload: dict[str, Any] | None = None
+    if training_source is not None:
+        history_payload = training_source.load()
+        if training_source.sealed_underlying_reads != 0:
+            raise TrainingLeakError("training source must not read sealed underlying")
 
     if not state.get("seal_opened"):
         preconditions = assert_v2_final_test_preconditions(
@@ -421,9 +513,38 @@ def run_v2_final_test(
     if not record_sealed_access:
         access_count = 1 if not seal_broken else access_count
 
-    frames = construct_study_frames(payload, allow_sealed_dates=allow_sealed_dates)
     study_t0 = t0 if t0 is not None else payload_t0(payload, default=SEALED_T0)
-    evaluation = evaluate_v2_study(
+    if history_payload is not None and not payload.get("fixture"):
+        frames = construct_combined_study_frames(
+            history=history_payload,
+            sealed=payload,
+            allow_sealed_dates=allow_sealed_dates,
+        )
+    else:
+        frames = construct_study_frames(payload, allow_sealed_dates=allow_sealed_dates)
+    log.record("construct_features_labels")
+    _maybe_crash(fail_after, "construct_features_labels")
+
+    log.record("load_prebuilt_model")
+    _maybe_crash(fail_after, "load_prebuilt_model")
+    if fitted_model is None:
+        raise TrainingLeakError(
+            "r3 sealed runner requires a prebuilt Model A; refused to fit after sealed read"
+        )
+    training_meta = {}
+    if loaded_artifact is not None:
+        training_meta = {
+            "n_2024_train": 0,
+            "n_2025_train": 0,
+            "training_row_digest": loaded_artifact.manifest["training_row_digest"],
+            "preprocessing_digest": loaded_artifact.manifest["preprocessing_digest"],
+            "model_digest": loaded_artifact.manifest["fitted_model_digest"],
+            "training_source_manifest_digest": loaded_artifact.manifest[
+                "training_source_manifest_digest"
+            ],
+        }
+    evaluation = score_sealed_study(
+        fitted=fitted_model,
         features=frames["features"],
         labels=frames["labels"],
         bars=frames["bars"],
@@ -438,6 +559,8 @@ def run_v2_final_test(
         run_robustness=run_robustness,
         sealed_access_count=access_count,
         seal_broken=seal_broken,
+        training_meta=training_meta,
+        skip_construct_step=True,
     )
     report = evaluation.gate_report
     result_path = seal_dir / "SEALED_RESULT.json"

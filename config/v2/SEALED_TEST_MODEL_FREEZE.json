@@ -1,0 +1,18 @@
+{
+  "artifact_kind": "v2_sealed_test_model",
+  "protocol_revision": 1,
+  "implementation_revision": 3,
+  "chosen_C": 0.01,
+  "final_training_decision_date": "2023-12-22",
+  "training_observation_count": 19376,
+  "fitted_model_digest": "74e301458559a511229b92235628db17cca80e4ebdff016a792784cab14ccc6c",
+  "preprocessing_digest": "2ea88b000718f053e94fcd07bdc742220b90b3263f039d9756999901716598e9",
+  "training_row_digest": {
+    "content_sha256": "d397b9f3ac093ad30e04de982208072db69b449fd62766a4fd28929fac30881d",
+    "schema_sha256": "21a3ce14920b5b30a3ed798591f24761c344d518a7e6eef5d5c30c4d00f8c423"
+  },
+  "training_source_manifest_digest": "79ddc0caf350bc816a509433dd43baf5c70339a7000433026eb275dadb07266f",
+  "integrity_digest": "74e188001985d879135c0e99b5417235d5659a9b104d8b2be57b4286b896105c",
+  "contains_2024_2025": false,
+  "note": "Logical digests of the pre-sealed Model A. Binary joblib bytes are not the freeze key."
+}

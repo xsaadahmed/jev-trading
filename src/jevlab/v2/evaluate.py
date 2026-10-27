@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import pickle
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date
@@ -17,7 +16,7 @@ from jevlab.evaluation.metrics import benchmark_returns, contribution_tables
 from jevlab.features.columns import MODEL_A_COLUMNS
 from jevlab.models.logistic import fitted_scaler_mean
 from jevlab.targets.labels import build_labels
-from jevlab.utils.hashing import canonical_json, logical_table_digest, sha256_of
+from jevlab.utils.hashing import logical_table_digest
 from jevlab.v2.acceptance import (
     V2GateMetrics,
     concentration_from_trades,
@@ -53,10 +52,14 @@ from jevlab.v2.training import (
     SEALED_T0,
     FittedModelA,
     TrainingLeakError,
+    assert_no_sealed_training_years,
     assert_sealed_training_cutoff,
     filter_training_rows,
     fit_once_model_a,
+    logical_model_digest,
+    preprocessing_logical_digest,
     score_model_a,
+    training_row_digest,
 )
 
 StepFn = Callable[[str], None]
@@ -215,22 +218,6 @@ def payload_t0(payload: Mapping[str, Any], *, default: date) -> date:
     return _as_date(payload["t0"])
 
 
-def _pipeline_digest(fitted: FittedModelA) -> str:
-    blob = pickle.dumps(
-        {
-            "C": fitted.C,
-            "cutoff": str(fitted.cutoff),
-            "n_train_rows": fitted.n_train_rows,
-            "fit_count": fitted.fit_count,
-            "seed": fitted.seed,
-            "columns": list(fitted.columns),
-            "pipeline": fitted.pipeline,
-        },
-        protocol=4,
-    )
-    return sha256_of(blob)
-
-
 def _quantiles(arr: np.ndarray) -> dict[str, float]:
     qs = (1.0, 5.0, 25.0, 50.0, 75.0, 95.0, 99.0)
     return {f"p{int(q)}": float(np.nanpercentile(arr, q)) for q in qs}
@@ -284,6 +271,48 @@ class V2EvaluationResult:
         )
 
 
+def _assert_live_research_hashes() -> dict[str, str]:
+    live = assert_frozen_research_hashes()
+    if live["research_config_hash"] != FROZEN_RESEARCH_CONFIG_HASH:
+        raise AssertionError("research config hash drifted")
+    if live["candidate"] != FROZEN_CANDIDATE_HASH:
+        raise AssertionError("candidate hash drifted")
+    if live["random_null"] != FROZEN_RANDOM_NULL_HASH:
+        raise AssertionError("random-null hash drifted")
+    if live["acceptance_gates"] != FROZEN_ACCEPTANCE_GATE_HASH:
+        raise AssertionError("acceptance-gate hash drifted")
+    return live
+
+
+def _joined_study_frame(
+    features: pd.DataFrame,
+    labels: pd.DataFrame,
+    bars: pd.DataFrame,
+    *,
+    t0: date,
+    allow_sealed_dates: bool,
+) -> tuple[pd.DataFrame, list[date], date]:
+    assert_frame_date_window(features, allow_sealed_dates=allow_sealed_dates)
+    assert_frame_date_window(labels, allow_sealed_dates=allow_sealed_dates)
+    assert_frame_date_window(bars, allow_sealed_dates=allow_sealed_dates)
+    frame = join_features_labels(features, labels)
+    assert_frame_date_window(frame, allow_sealed_dates=allow_sealed_dates)
+    if "eligible" not in frame.columns:
+        raise TrainingLeakError("joined frame missing eligibility")
+    bar_dates = pd.to_datetime(bars["date"]).dt.date.tolist()
+    sessions = sorted(set(frame["date"].tolist()) | set(bar_dates))
+    if t0 not in sessions:
+        sessions = sorted(set(sessions) | {t0})
+    cutoff = embargo_cutoff_date(sessions, t0, embargo_sessions=5)
+    if cutoff is None:
+        raise TrainingLeakError("could not derive embargo cutoff")
+    if t0 == SEALED_T0:
+        cal_cutoff = assert_sealed_training_cutoff()
+        if cutoff != cal_cutoff or cutoff != EXPECTED_CUTOFF:
+            raise TrainingLeakError(f"training cutoff {cutoff} != {EXPECTED_CUTOFF}")
+    return frame, sessions, cutoff
+
+
 def evaluate_v2_study(
     *,
     features: pd.DataFrame,
@@ -303,7 +332,7 @@ def evaluate_v2_study(
     hash_integrity_ok: bool = True,
     tag_integrity_ok: bool = True,
 ) -> V2EvaluationResult:
-    """Fit once, score, backtest, N-null, derive gates. No caller metric override."""
+    """Fit once on pre-sealed rows then score. Tests only; sealed runner must not call this."""
     step = on_step or _noop_step
 
     def crash(name: str) -> None:
@@ -312,60 +341,113 @@ def evaluate_v2_study(
             raise InjectedCrash(f"injected crash after {name}")
 
     crash("construct_features_labels")
-    live = assert_frozen_research_hashes()
-    if live["research_config_hash"] != FROZEN_RESEARCH_CONFIG_HASH:
-        raise AssertionError("research config hash drifted")
-    if live["candidate"] != FROZEN_CANDIDATE_HASH:
-        raise AssertionError("candidate hash drifted")
-    if live["random_null"] != FROZEN_RANDOM_NULL_HASH:
-        raise AssertionError("random-null hash drifted")
-    if live["acceptance_gates"] != FROZEN_ACCEPTANCE_GATE_HASH:
-        raise AssertionError("acceptance-gate hash drifted")
+    live = _assert_live_research_hashes()
+    _ = live
+    frame, sessions, cutoff = _joined_study_frame(
+        features, labels, bars, t0=t0, allow_sealed_dates=allow_sealed_dates
+    )
+    crash("fit_once_pre_sealed")
+    pre_t0 = frame.loc[frame["date"] < t0].copy()
+    assert_frame_pre_sealed(pre_t0)
+    train = filter_training_rows(pre_t0, cutoff=cutoff, t0=t0)
+    n_2024_train, n_2025_train = assert_no_sealed_training_years(train)
+    fitted = fit_once_model_a(train, sessions=sessions, t0=t0, cutoff=cutoff)
+    if fitted.fit_count != 1:
+        raise TrainingLeakError("fit_count != 1")
+    crash("archive_training_artifact")
+    train_digest = training_row_digest(train)
+    preprocess_digest = preprocessing_logical_digest(fitted)
+    model_digest = logical_model_digest(fitted)
+    _ = fitted_scaler_mean(fitted.pipeline)
+    training_meta = {
+        "n_2024_train": n_2024_train,
+        "n_2025_train": n_2025_train,
+        "training_row_digest": train_digest,
+        "preprocessing_digest": preprocess_digest,
+        "model_digest": model_digest,
+        "training_source_manifest_digest": "",
+    }
+    return score_sealed_study(
+        fitted=fitted,
+        features=features,
+        labels=labels,
+        bars=bars,
+        t0=t0,
+        n=n,
+        allow_reduced_n=allow_reduced_n,
+        allow_sealed_dates=allow_sealed_dates,
+        label=label,
+        on_step=on_step,
+        fail_after=fail_after,
+        check_fast_first_null=check_fast_first_null,
+        run_robustness=run_robustness,
+        sealed_access_count=sealed_access_count,
+        seal_broken=seal_broken,
+        hash_integrity_ok=hash_integrity_ok,
+        tag_integrity_ok=tag_integrity_ok,
+        training_meta=training_meta,
+        skip_construct_step=True,
+    )
+
+
+def score_sealed_study(
+    *,
+    fitted: FittedModelA,
+    features: pd.DataFrame,
+    labels: pd.DataFrame,
+    bars: pd.DataFrame,
+    t0: date,
+    n: int = FROZEN_N,
+    allow_reduced_n: bool = False,
+    allow_sealed_dates: bool = False,
+    label: str = "confirmatory",
+    on_step: StepFn | None = None,
+    fail_after: str | None = None,
+    check_fast_first_null: bool = True,
+    run_robustness: bool = True,
+    sealed_access_count: int = 1,
+    seal_broken: bool = False,
+    hash_integrity_ok: bool = True,
+    tag_integrity_ok: bool = True,
+    training_meta: Mapping[str, Any] | None = None,
+    skip_construct_step: bool = False,
+) -> V2EvaluationResult:
+    """Score sealed rows with a prebuilt Model A. Does not fit or select C."""
+    step = on_step or _noop_step
+
+    def crash(name: str) -> None:
+        step(name)
+        if fail_after is not None and fail_after == name:
+            raise InjectedCrash(f"injected crash after {name}")
+
+    if not skip_construct_step:
+        crash("construct_features_labels")
+    live = _assert_live_research_hashes()
     seed_audit = audit_revision1_uniqueness()
     if seed_audit["n_unique_child_seeds"] != 6000:
         raise AssertionError("child-seed uniqueness invariant failed")
     if seed_audit["seed_mapping_digest"] != FROZEN_SEED_MAPPING_DIGEST:
         raise AssertionError("seed-mapping digest drifted")
-
-    assert_frame_date_window(features, allow_sealed_dates=allow_sealed_dates)
-    assert_frame_date_window(labels, allow_sealed_dates=allow_sealed_dates)
-    assert_frame_date_window(bars, allow_sealed_dates=allow_sealed_dates)
-    frame = join_features_labels(features, labels)
-    assert_frame_date_window(frame, allow_sealed_dates=allow_sealed_dates)
-    if "eligible" not in frame.columns:
-        raise TrainingLeakError("joined frame missing eligibility")
-    bar_dates = pd.to_datetime(bars["date"]).dt.date.tolist()
-    sessions = sorted(set(frame["date"].tolist()) | set(bar_dates))
-    if t0 not in sessions:
-        sessions = sorted(set(sessions) | {t0})
-    cutoff = embargo_cutoff_date(sessions, t0, embargo_sessions=5)
-    if cutoff is None:
-        raise TrainingLeakError("could not derive embargo cutoff")
-    if t0 == SEALED_T0:
-        cal_cutoff = assert_sealed_training_cutoff()
-        if cutoff != cal_cutoff or cutoff != EXPECTED_CUTOFF:
-            raise TrainingLeakError(f"training cutoff {cutoff} != {EXPECTED_CUTOFF}")
-
-    crash("fit_once_pre_sealed")
-    pre_t0 = frame.loc[frame["date"] < t0].copy()
-    assert_frame_pre_sealed(pre_t0)
-    train = filter_training_rows(pre_t0, cutoff=cutoff, t0=t0)
-    n_2024_train = int((train["date"].map(lambda d: d.year) == 2024).sum())
-    n_2025_train = int((train["date"].map(lambda d: d.year) == 2025).sum())
+    frame, sessions, cutoff = _joined_study_frame(
+        features, labels, bars, t0=t0, allow_sealed_dates=allow_sealed_dates
+    )
+    if fitted.fit_count != 1:
+        raise TrainingLeakError("prebuilt model fit_count != 1")
+    if t0 == SEALED_T0 and fitted.cutoff != EXPECTED_CUTOFF:
+        raise TrainingLeakError(f"prebuilt model cutoff {fitted.cutoff} != {EXPECTED_CUTOFF}")
+    meta = dict(training_meta) if training_meta is not None else {}
+    n_2024_train = int(meta.get("n_2024_train", 0))
+    n_2025_train = int(meta.get("n_2025_train", 0))
     if n_2024_train or n_2025_train:
         raise TrainingLeakError("training rows from 2024 or 2025")
-    fitted = fit_once_model_a(train, sessions=sessions, t0=t0, cutoff=cutoff)
-    if fitted.fit_count != 1:
-        raise TrainingLeakError("fit_count != 1")
-
-    crash("archive_training_artifact")
-    keep_cols = [c for c in ("symbol", "date", "y", *MODEL_A_COLUMNS) if c in train.columns]
-    train_digest = logical_table_digest(train.loc[:, keep_cols], primary_key=["symbol", "date"])
-    scaler_mean = fitted_scaler_mean(fitted.pipeline)
-    preprocess_digest = sha256_of(
-        canonical_json({"scaler_mean": [float(x) for x in np.asarray(scaler_mean).ravel()]})
+    train_digest = meta.get("training_row_digest") or {
+        "content_sha256": "prebuilt",
+        "schema_sha256": "prebuilt",
+    }
+    preprocess_digest = str(
+        meta.get("preprocessing_digest") or preprocessing_logical_digest(fitted)
     )
-    model_digest = _pipeline_digest(fitted)
+    model_digest = str(meta.get("model_digest") or logical_model_digest(fitted))
 
     crash("score_entire_period")
     score = frame.loc[frame["date"] >= t0].copy()
@@ -373,7 +455,6 @@ def evaluate_v2_study(
     pred_keep = [c for c in ("symbol", "date", "prob", "score", "eligible") if c in preds.columns]
     pred_digest = _digest_or_empty(preds.loc[:, pred_keep], ["symbol", "date"])
 
-    crash("candidate_backtest")
     cost_n = research_cost_model("normal")
     cost_p = research_cost_model("pessimistic")
     risk = research_risk_config()
@@ -389,6 +470,7 @@ def evaluate_v2_study(
     equity_all: list[pd.DataFrame] = []
     ledger_fast_ok = True
     for phase in V2_PHASES:
+        crash(f"candidate_backtest_phase_{phase}")
         ledger, _fast, m_n = run_model_a_backtest(
             bars,
             preds,
@@ -419,6 +501,7 @@ def evaluate_v2_study(
         trades_all.append(ledger.trades)
         equity_all.append(ledger.equity_curve)
         ledger_fast_ok = ledger_fast_ok and True
+    crash("candidate_backtest")
     observed = float(
         mean_phase_stat({p: {"sharpe": phase_sharpe[p]} for p in phase_sharpe}, "sharpe")
     )
@@ -650,6 +733,10 @@ def evaluate_v2_study(
         "training_row_digest": train_digest,
         "preprocessing_digest": preprocess_digest,
         "model_digest": model_digest,
+        "model_logical_digest": model_digest,
+        "training_source_manifest_digest": meta.get("training_source_manifest_digest", ""),
+        "prebuilt_model": True,
+        "fit_after_sealed_read": False,
         "prediction_digest": pred_digest,
         "trade_ledger_digest": trade_digest,
         "seed_mapping_digest": seed_audit["seed_mapping_digest"],

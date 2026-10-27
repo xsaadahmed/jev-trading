@@ -54,6 +54,38 @@ class RehearsalResult:
         }
 
 
+def split_preseal_and_score_payload(
+    payload: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a pre-2024 panel into training/context vs pseudo-sealed scoring sources."""
+    t0 = payload["t0"]
+    features = pd.DataFrame(payload["features"]).copy()
+    bars = pd.DataFrame(payload["bars"]).copy()
+    features["date"] = pd.to_datetime(features["date"]).dt.date
+    bars["date"] = pd.to_datetime(bars["date"]).dt.date
+    labels = pd.DataFrame(payload.get("labels", features)).copy()
+    labels["date"] = pd.to_datetime(labels["date"]).dt.date
+    history = {
+        "features": features.loc[features["date"] < t0].reset_index(drop=True),
+        "labels": labels.loc[labels["date"] < t0].reset_index(drop=True),
+        "bars": bars.loc[bars["date"] < t0].reset_index(drop=True),
+        "pre_sealed": True,
+    }
+    sealed = {
+        "features": features.loc[features["date"] >= t0].reset_index(drop=True),
+        "labels": labels.loc[labels["date"] >= t0].reset_index(drop=True),
+        "bars": bars.loc[bars["date"] >= t0].reset_index(drop=True),
+        "t0": t0,
+        "pseudo": True,
+        "label": REHEARSAL_LABEL,
+    }
+    assert_frame_pre_sealed(history["features"])
+    assert_frame_pre_sealed(history["bars"])
+    assert_frame_pre_sealed(sealed["features"])
+    assert_frame_pre_sealed(sealed["bars"])
+    return history, sealed
+
+
 def synthetic_pre2024_payload(
     *,
     n_sessions: int = 80,
@@ -256,26 +288,75 @@ def run_production_path_rehearsal(
     run_robustness: bool = False,
     sandbox_root: Path | None = None,
 ) -> RehearsalResult:
-    """Actual production computational path on a PRE-2024 pseudo-sealed source."""
+    """Actual r3 production path: prebuild model, then score a pseudo-sealed source."""
     from jevlab.utils.registry import init_registry
     from jevlab.v2.acceptance import phases_beating_null
     from jevlab.v2.evaluate import oracle_from_artifacts
-    from jevlab.v2.sealed_run import run_v2_final_test
-    from jevlab.v2.sealed_source import CountingSealedSource
+    from jevlab.v2.model_artifact import fit_presealed_model, write_sealed_test_model
+    from jevlab.v2.sealed_run import (
+        REQUIRED_AUTHORIZATION_PHRASE,
+        run_v2_final_test,
+        run_v2_preflight,
+    )
+    from jevlab.v2.sealed_source import CountingPreSealedSource, CountingSealedSource
 
     payload = synthetic_pre2024_payload(n_sessions=n_sessions, n_symbols=n_symbols, seed=seed)
     t0 = payload["t0"]
+    history, sealed = split_preseal_and_score_payload(payload)
     tmp_root = sandbox_root or Path("reports") / "v2_preseal" / "production_path_rehearsal_sandbox"
     if tmp_root.exists():
         shutil.rmtree(tmp_root)
     (tmp_root / "data" / "sealed").mkdir(parents=True)
     acc = tmp_root / "reports" / "acceptance"
     seal = tmp_root / "reports" / "v2_sealed"
+    model_dir = tmp_root / "reports" / "v2_preseal"
     acc.mkdir(parents=True)
     seal.mkdir(parents=True)
+    model_dir.mkdir(parents=True)
     (tmp_root / "registry").mkdir()
     reg = tmp_root / "registry" / "experiments.sqlite"
     init_registry(reg)
+
+    train_src = CountingPreSealedSource(history)
+    fitted, meta = fit_presealed_model(
+        features=history["features"],
+        labels=history["labels"],
+        bars=history["bars"],
+        t0=t0,
+        source_manifest_digest=train_src.source_manifest_digest(),
+    )
+    artifact = write_sealed_test_model(
+        fitted=fitted,
+        meta=meta,
+        out_dir=model_dir,
+        git_commit="rehearsal",
+    )
+    freeze = {
+        "fitted_model_digest": artifact.manifest["fitted_model_digest"],
+        "preprocessing_digest": artifact.manifest["preprocessing_digest"],
+        "training_row_digest": artifact.manifest["training_row_digest"],
+        "chosen_C": artifact.manifest["chosen_C"],
+        "training_source_manifest_digest": artifact.manifest["training_source_manifest_digest"],
+    }
+    sealed_src_pre = CountingSealedSource(sealed)
+    preflight = run_v2_preflight(
+        root=tmp_root,
+        registry_path=reg,
+        configured_sealed_path=tmp_root / "data" / "sealed",
+        require_clean_tree=False,
+        require_git_tags=False,
+        require_preseal_tag=False,
+        require_hashes=False,
+        training_source=CountingPreSealedSource(history),
+        model_artifact_path=artifact.path,
+        require_prebuilt_model=True,
+        model_freeze=freeze,
+    )
+    if preflight["sealed_underlying_reads"] != 0 or sealed_src_pre.sealed_underlying_reads != 0:
+        return RehearsalResult(
+            ok=False,
+            details={"error": "preflight read pseudo-sealed source", "preflight": preflight},
+        )
 
     def _run(seal_dir: Path, acc_dir: Path, *, check_fast: bool) -> Any:
         return run_v2_final_test(
@@ -284,13 +365,18 @@ def run_production_path_rehearsal(
             acceptance_dir=acc_dir,
             seal_dir=seal_dir,
             seal_token="unused",
-            sealed_source=CountingSealedSource(payload),
+            sealed_source=CountingSealedSource(sealed),
+            training_source=CountingPreSealedSource(history),
+            model_artifact=artifact,
+            require_prebuilt_model=True,
+            model_freeze=freeze,
             require_clean_tree=False,
             require_git_tags=False,
             require_preseal_tag=False,
             require_hashes=False,
             require_seal_token=False,
-            require_authorization=False,
+            require_authorization=True,
+            authorization=REQUIRED_AUTHORIZATION_PHRASE,
             record_sealed_access=False,
             n=n,
             allow_reduced_n=n != FROZEN_N,
@@ -352,10 +438,28 @@ def run_production_path_rehearsal(
         body2 = json.loads(result2.result_path.read_text(encoding="utf-8"))
         repeat_ok = body2["details"]["null_vector_digest"] == details["null_vector_digest"]
         repeat_ok = repeat_ok and body2["observed_mean_sharpe"] == observed
+    hist_dates = history["features"]["date"]
+    sealed_dates = sealed["features"]["date"]
     return RehearsalResult(
-        ok=repeat_ok and oracle_ok and details["fit_count"] == 1 and details["dropped_draws"] == 0,
+        ok=(
+            repeat_ok
+            and oracle_ok
+            and details["fit_count"] == 1
+            and details["dropped_draws"] == 0
+            and details.get("fit_after_sealed_read") is False
+            and preflight["sealed_underlying_reads"] == 0
+        ),
         details={
             "label": REHEARSAL_LABEL,
+            "architecture": "r3_two_source_prebuilt_model",
+            "pre_seal_period": {
+                "min": str(min(hist_dates)),
+                "max": str(max(hist_dates)),
+            },
+            "pseudo_sealed_period": {
+                "min": str(min(sealed_dates)),
+                "max": str(max(sealed_dates)),
+            },
             "data_period": {"t0": str(t0), "cutoff": details["cutoff"]},
             "n": n,
             "n_executed": details["n_executed"],
@@ -376,6 +480,12 @@ def run_production_path_rehearsal(
             "does_not_alter_thresholds": True,
             "v2_confirmatory_evidence": False,
             "result_path": str(result.result_path),
+            "preflight_sealed_underlying_reads": preflight["sealed_underlying_reads"],
+            "preflight_training_context_reads": preflight["training_context_reads"],
+            "model_logical_digest": artifact.manifest["fitted_model_digest"],
+            "preprocessing_digest": artifact.manifest["preprocessing_digest"],
+            "training_row_digest": artifact.manifest["training_row_digest"],
+            "fit_after_sealed_read": details.get("fit_after_sealed_read"),
         },
     )
 

@@ -20,8 +20,11 @@ FROZEN_TAG_DESIGN = ORIGINAL_TAG_DESIGN
 FROZEN_TAG_PREREG_R1 = "prereg-v2-baseline-r1"
 FROZEN_TAG_DESIGN_R1 = "v2-design-frozen-r1"
 FROZEN_PRESEAL_IMPL_TAG_R1 = "v2-preseal-implementation-r1"
-FROZEN_PRESEAL_IMPL_TAG = "v2-preseal-implementation-r2"
+FROZEN_PRESEAL_IMPL_TAG_R2 = "v2-preseal-implementation-r2"
+FROZEN_PRESEAL_IMPL_TAG = "v2-preseal-implementation-r3"
+FROZEN_IMPLEMENTATION_REVISION = 3
 FROZEN_PROTOCOL_REVISION = PROTOCOL_REVISION
+R2_EXECUTION_COMMIT = "8197cd906752c40f18129fa372e56b6013fc1079"
 
 # Execution-authoritative revision-1 hashes.
 FROZEN_RESEARCH_CONFIG_HASH = "e436ed977a02a39a0a280d78dcad74fa67e3ff1276f18a3430f249a9aeaf13ce"
@@ -96,5 +99,6 @@ def frozen_hash_payload() -> dict[str, Any]:
         "frozen_commit": FROZEN_COMMIT,
         "research_config_hash": FROZEN_RESEARCH_CONFIG_HASH,
         "seed_mapping_digest": FROZEN_SEED_MAPPING_DIGEST,
+        "implementation_revision": FROZEN_IMPLEMENTATION_REVISION,
         **FROZEN_SECTION_HASHES,
     }

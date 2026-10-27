@@ -9,9 +9,10 @@ import pytest
 from jevlab.cv.sealed_guard import SEAL_TOKEN_ENV
 from jevlab.jev.preconditions import PreconditionError
 from jevlab.utils.registry import init_registry
-from jevlab.v2.rehearsal import synthetic_pre2024_payload
+from jevlab.v2.model_artifact import fit_presealed_model, write_sealed_test_model
+from jevlab.v2.rehearsal import split_preseal_and_score_payload, synthetic_pre2024_payload
 from jevlab.v2.sealed_run import InjectedCrash, run_v2_final_test
-from jevlab.v2.sealed_source import CountingSealedSource
+from jevlab.v2.sealed_source import CountingPreSealedSource, CountingSealedSource
 
 SEAL = "v2-fixture-seal"
 
@@ -29,8 +30,30 @@ def _root(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     return root, acc, seal, reg
 
 
+def _prebuild(tmp_path: Path, payload: dict) -> tuple[dict, dict, object]:
+    history, sealed = split_preseal_and_score_payload(payload)
+    fitted, meta = fit_presealed_model(
+        features=history["features"],
+        labels=history["labels"],
+        bars=history["bars"],
+        t0=payload["t0"],
+        source_manifest_digest="atomicity",
+    )
+    art = write_sealed_test_model(
+        fitted=fitted, meta=meta, out_dir=tmp_path / "model", git_commit="t"
+    )
+    return history, sealed, art
+
+
 def _kwargs(
-    root: Path, acc: Path, seal: Path, reg: Path, src: CountingSealedSource
+    root: Path,
+    acc: Path,
+    seal: Path,
+    reg: Path,
+    src: CountingSealedSource,
+    *,
+    history: dict,
+    artifact: object,
 ) -> dict[str, object]:
     return dict(
         root=root,
@@ -39,6 +62,9 @@ def _kwargs(
         seal_dir=seal,
         seal_token=SEAL,
         sealed_source=src,
+        training_source=CountingPreSealedSource(history),
+        model_artifact=artifact,
+        require_prebuilt_model=True,
         require_git_tags=False,
         require_preseal_tag=False,
         require_hashes=False,
@@ -64,8 +90,11 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
         "append_sealed_access_record",
         "read_sealed_or_fixture",
         "construct_features_labels",
-        "fit_once_pre_sealed",
+        "load_prebuilt_model",
         "score_entire_period",
+        "candidate_backtest_phase_0",
+        "candidate_backtest_phase_1",
+        "candidate_backtest_phase_2",
         "candidate_backtest",
         "first_null_draw",
         "midpoint_null_draw",
@@ -78,13 +107,18 @@ def _env(monkeypatch: pytest.MonkeyPatch) -> None:
 )
 def test_crash_after_step_does_not_write_pass(tmp_path: Path, step: str) -> None:
     root, acc, seal, reg = _root(tmp_path)
-    src = CountingSealedSource(synthetic_pre2024_payload(n_sessions=40, n_symbols=4, seed=3))
+    payload = synthetic_pre2024_payload(n_sessions=40, n_symbols=4, seed=3)
+    history, sealed, art = _prebuild(tmp_path, payload)
+    src = CountingSealedSource(sealed)
     with pytest.raises(InjectedCrash):
-        run_v2_final_test(**_kwargs(root, acc, seal, reg, src), fail_after=step)  # type: ignore[arg-type]
+        run_v2_final_test(
+            **_kwargs(root, acc, seal, reg, src, history=history, artifact=art),
+            fail_after=step,
+        )  # type: ignore[arg-type]
     assert not (acc / "V2_SEALED_PASS.json").exists()
     state = (seal / "v2_seal_state.json").read_text(encoding="utf-8")
     assert "seal_opened" in state
-    src2 = CountingSealedSource(synthetic_pre2024_payload(n_sessions=40, n_symbols=4, seed=3))
+    src2 = CountingSealedSource(sealed)
     with pytest.raises(PreconditionError, match="already run"):
-        run_v2_final_test(**_kwargs(root, acc, seal, reg, src2))  # type: ignore[arg-type]
+        run_v2_final_test(**_kwargs(root, acc, seal, reg, src2, history=history, artifact=art))  # type: ignore[arg-type]
     assert src2.loads == 0
