@@ -47,7 +47,7 @@ No `V2_SEALED_PASS`. No confirmatory `SEALED_RESULT`. Seal broken = NO. Second l
 ## Implementation r4
 
 - Tag: `v2-preseal-implementation-r4`
-- Implementation commit: see freeze JSON `r4_commit`
+- Implementation commit: `489eb5db94316f69be727a79611edfe6c1a337a5`
 - Branch: `v2-baseline-validation`
 - Protocol revision: **1**
 - Implementation revision: **4**

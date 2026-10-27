@@ -17,7 +17,7 @@
   "r3_commit": "1b2648813f81d16c53dbf4ee47ba565177bef35f",
   "r3_tag": "v2-preseal-implementation-r3",
   "r4_tag": "v2-preseal-implementation-r4",
-  "r4_commit": "PENDING_TAG",
+  "r4_commit": "489eb5db94316f69be727a79611edfe6c1a337a5",
   "zero_sealed_reads_r1": true,
   "zero_sealed_reads_r2": true,
   "zero_sealed_reads_r3": true,
