@@ -32,6 +32,7 @@ from jevlab.v2.hashes import (
     FROZEN_RESEARCH_CONFIG_HASH,
     FROZEN_STRATEGY_HASH,
     FROZEN_TARGET_HASH,
+    MODEL_FREEZE_IMPLEMENTATION_REVISION,
     assert_frozen_research_hashes,
 )
 from jevlab.v2.training import (
@@ -256,8 +257,13 @@ def load_sealed_test_model(manifest_path: Path) -> SealedTestModelArtifact:
         raise TrainingLeakError("artifact is not v2_sealed_test_model")
     if int(manifest.get("protocol_revision", -1)) != PROTOCOL_REVISION:
         raise TrainingLeakError("sealed-test-model protocol revision drifted")
-    if int(manifest.get("implementation_revision", -1)) != FROZEN_IMPLEMENTATION_REVISION:
-        raise TrainingLeakError("sealed-test-model implementation revision is not 3")
+    vintage = int(manifest.get("implementation_revision", -1))
+    if vintage not in {MODEL_FREEZE_IMPLEMENTATION_REVISION, FROZEN_IMPLEMENTATION_REVISION}:
+        raise TrainingLeakError(
+            "sealed-test-model implementation revision is not the frozen Model A vintage "
+            f"({MODEL_FREEZE_IMPLEMENTATION_REVISION}) or the current runner "
+            f"({FROZEN_IMPLEMENTATION_REVISION})"
+        )
     if manifest.get("contains_2024_2025"):
         raise TrainingLeakError("sealed-test-model must not contain 2024-2025 information")
     pipe_path = man_path.with_name("SEALED_TEST_MODEL.joblib")

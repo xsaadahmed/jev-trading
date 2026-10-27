@@ -1,0 +1,88 @@
+{
+  "label": "development_rehearsal_only",
+  "v2_confirmatory_evidence": false,
+  "does_not_alter_gates_or_thresholds": true,
+  "ok": true,
+  "details": {
+    "label": "development_rehearsal_only",
+    "architecture": "r4_typed_payload_causal_features",
+    "pre_seal_period": {
+      "min": "2020-01-02",
+      "max": "2021-02-02"
+    },
+    "pseudo_sealed_period": {
+      "min": "2021-02-03",
+      "max": "2021-02-25"
+    },
+    "data_period": {
+      "t0": "2021-02-03",
+      "cutoff": "2021-01-27"
+    },
+    "n": 2000,
+    "n_executed": 2000,
+    "null_vector_digest": "463a6e9b7d59464199663aa36d519af7af3a75c62457f9aaa573dfbe98e9aa0e",
+    "deterministic_repeat": true,
+    "oracle_gate_comparison": true,
+    "oracle": {
+      "observed_mean_sharpe": 8.255016790263703,
+      "null_median": 6.360579705046506,
+      "p_value": 0.06446776611694154,
+      "sharpe_advantage": 1.8944370852171968,
+      "cagr_normal": 0.5864117766767061,
+      "cagr_pessimistic": 0.5329326396017187,
+      "max_drawdown_magnitude": 0.007665431789746593,
+      "phase_wins": 3,
+      "top5_profitable_share": 0.39345512969525454,
+      "max_etf_positive_share": 0.42057625204734406,
+      "positive_pnl": 11623.837130572072
+    },
+    "observed_mean_sharpe": 8.255016790263703,
+    "p_value": 0.06446776611694154,
+    "advantage": 1.8944370852171968,
+    "runtime_seconds": 564.6678574001417,
+    "fit_count": 1,
+    "C": 0.1,
+    "n_2024_train": 0,
+    "n_2025_train": 0,
+    "dropped_draws": 0,
+    "acceptance_written": false,
+    "does_not_alter_thresholds": true,
+    "v2_confirmatory_evidence": false,
+    "result_path": "reports\\v2_preseal\\production_path_rehearsal_sandbox\\reports\\v2_sealed\\SEALED_RESULT.json",
+    "preflight_sealed_underlying_reads": 0,
+    "preflight_training_context_reads": 1,
+    "model_logical_digest": "1f77344a66495fe6a910f696b1089c4f56ae876ee270307d9e51d9c29bb47db8",
+    "preprocessing_digest": "09fb32cce6c0de8955122837eb39feea1aabc71b519f9b0efc82413201d44e4c",
+    "training_row_digest": {
+      "content_sha256": "5e17a9c58d53aaf5b8c65394e7b9a7efb10f142da60ea5a4acb286e5c8860540",
+      "schema_sha256": "dfeba13ad99ad521534598a6551f263a2c8bd778c0a28a18ba9d54c9b190d925"
+    },
+    "fit_after_sealed_read": false,
+    "data_flow": {
+      "raw_rows": 80,
+      "classified_rows": 80,
+      "combined_history_sealed_rows": 64,
+      "feature_builder_input_rows": 64,
+      "valid_feature_rows": 64,
+      "candidate_scoring_rows": 64,
+      "first_candidate_date": "2021-02-03",
+      "last_candidate_date": "2021-02-25",
+      "n_predictions": 48,
+      "n_completed_trades": 72,
+      "causal_feature_builder_invoked": true,
+      "historical_only_fallback": false,
+      "unknown_frames": 0,
+      "canary_date": "2021-02-25",
+      "canary_seen_in_combined": true,
+      "canary_seen_in_features": true,
+      "canary_seen_in_scoring": true
+    },
+    "causal_feature_builder_invoked": true,
+    "historical_only_fallback": false,
+    "production_payload_type": "ProductionSealedPayload",
+    "canary_date": "2021-02-25",
+    "canary_seen_in_combined": true,
+    "canary_seen_in_features": true,
+    "canary_seen_in_scoring": true
+  }
+}

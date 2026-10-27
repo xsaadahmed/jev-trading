@@ -44,6 +44,7 @@ from jevlab.v2.hashes import (
     assert_frozen_research_hashes,
 )
 from jevlab.v2.null_engine import run_null_draw
+from jevlab.v2.payload import EmptySealedScoringError, strip_audit_columns
 from jevlab.v2.rehearsal import REHEARSAL_LABEL, null_vector_digest
 from jevlab.v2.seed_audit import audit_revision1_uniqueness
 from jevlab.v2.statistics import FROZEN_N, evaluate_randomization
@@ -451,6 +452,13 @@ def score_sealed_study(
 
     crash("score_entire_period")
     score = frame.loc[frame["date"] >= t0].copy()
+    if score.empty:
+        raise EmptySealedScoringError(
+            "zero sealed observations reached candidate scoring; refusing historical-only fallback"
+        )
+    if bool((pd.to_datetime(score["date"]).dt.date < t0).any()):
+        raise EmptySealedScoringError("historical context rows were scored as sealed observations")
+    score = strip_audit_columns(score)
     preds = score_model_a(fitted, score)
     pred_keep = [c for c in ("symbol", "date", "prob", "score", "eligible") if c in preds.columns]
     pred_digest = _digest_or_empty(preds.loc[:, pred_keep], ["symbol", "date"])

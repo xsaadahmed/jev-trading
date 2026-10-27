@@ -157,8 +157,9 @@ def test_production_path_rehearsal_small_n(tmp_path: Path) -> None:
     out = run_production_path_rehearsal(
         n=6,
         repeat=True,
-        n_sessions=40,
+        n_sessions=290,
         n_symbols=4,
+        n_score=16,
         seed=11,
         run_robustness=False,
         sandbox_root=tmp_path / "sandbox",

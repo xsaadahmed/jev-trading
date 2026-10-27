@@ -11,7 +11,12 @@ from typing import Any
 
 from jevlab.cv.sealed_guard import SealedAccessError
 from jevlab.utils.hashing import canonical_json, sha256_of
-from jevlab.v2.dev_io import iter_dev_year_paths, read_dev_bars, read_dev_feature_store
+from jevlab.v2.dev_io import (
+    iter_dev_year_paths,
+    read_dev_bars,
+    read_dev_feature_store,
+    read_dev_vix,
+)
 
 SEALED_SCORE_YEARS: tuple[int, ...] = (2024, 2025)
 
@@ -45,6 +50,7 @@ class PreSealedTrainingSource:
 
         vendor = self.vendor or load_all_configs().data.primary_vendor
         bars = read_dev_bars(vendor=vendor, symbols=list(V2_UNIVERSE))
+        vix = read_dev_vix()
         self.filesystem_reads += 1
         labels = features
         if not bars.empty and "y" not in features.columns:
@@ -65,6 +71,7 @@ class PreSealedTrainingSource:
             "features": features,
             "labels": labels,
             "bars": bars,
+            "vix": vix,
             "pre_sealed": True,
         }
 
@@ -73,13 +80,22 @@ class PreSealedTrainingSource:
             keys = sorted(str(k) for k in self.payload)
             n_feat = 0
             n_bars = 0
+            n_vix = 0
             if "features" in self.payload:
                 n_feat = int(getattr(self.payload["features"], "__len__", lambda: 0)())
             if "bars" in self.payload:
                 n_bars = int(getattr(self.payload["bars"], "__len__", lambda: 0)())
+            if "vix" in self.payload:
+                n_vix = int(getattr(self.payload["vix"], "__len__", lambda: 0)())
             return sha256_of(
                 canonical_json(
-                    {"kind": "payload", "keys": keys, "n_feat": n_feat, "n_bars": n_bars}
+                    {
+                        "kind": "payload",
+                        "keys": keys,
+                        "n_feat": n_feat,
+                        "n_bars": n_bars,
+                        "n_vix": n_vix,
+                    }
                 )
             )
         from jevlab.features.columns import FEATURE_VERSION

@@ -101,7 +101,7 @@ def final_test_cmd(
     authorization: str = typer.Option(
         "",
         "--authorization",
-        help="Fresh r3 human authorization phrase; prior r1/r2 authorizations are void.",
+        help="Fresh r4 human authorization phrase; prior r1/r2/r3 authorizations are void.",
     ),
 ) -> None:
     """One-shot V2 sealed evaluation.
@@ -168,7 +168,7 @@ def final_test_cmd(
         typer.echo(
             json.dumps(
                 {
-                    "error": "fresh implementation-r3 authorization required",
+                    "error": "fresh implementation-r4 authorization required",
                     "sealed_read": False,
                     "acceptance_written": False,
                     "required_tag": FROZEN_PRESEAL_IMPL_TAG,
@@ -221,7 +221,7 @@ def production_rehearsal_cmd(
     n: int = typer.Option(FROZEN_N, help="Null draws; frozen N=2000 for the canonical rehearsal."),
     repeat: bool = typer.Option(True, help="Repeat the production path for digest equality."),
 ) -> None:
-    """Run the r3 production computational path on a PRE-2024 two-source rehearsal."""
+    """Run the r4 production computational path on a PRE-2024 two-source rehearsal."""
     configure_logging()
     from jevlab.v2.rehearsal import run_production_path_rehearsal
 

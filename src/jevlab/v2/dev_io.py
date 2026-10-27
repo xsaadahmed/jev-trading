@@ -92,6 +92,29 @@ def read_dev_bars(*, vendor: str, symbols: list[str] | None = None) -> pd.DataFr
     return out.sort_values(["symbol", "date"]).reset_index(drop=True)
 
 
+def read_dev_vix(root: Path | None = None) -> pd.DataFrame:
+    """Load FRED VIX for years ≤ 2023 only. Never opens 2024-2025 partitions."""
+    from jevlab.config.loader import load_all_configs
+    from jevlab.cv.walkforward import DEV_MAX_DATE as _DEV_MAX
+    from jevlab.data.downloader import default_store
+
+    paths_obj = ProjectPaths.from_root(root or get_project_root())
+    configs = load_all_configs(paths_obj.config)
+    store = default_store(paths_obj, configs.data)
+    series_id = configs.data.vix_series_id
+    files = iter_dev_year_paths(store.external_dir / f"series_id={series_id}", "")
+    if not files:
+        return pd.DataFrame(columns=["series_id", "obs_date", "value"])
+    parts = [pd.read_parquet(p) for p in files]
+    out = pd.concat(parts, ignore_index=True)
+    date_col = "obs_date" if "obs_date" in out.columns else "date"
+    out[date_col] = pd.to_datetime(out[date_col]).dt.date
+    out = out.loc[out[date_col] <= _DEV_MAX].reset_index(drop=True)
+    if date_col != "obs_date":
+        out = out.rename(columns={date_col: "obs_date"})
+    return out.sort_values(["obs_date"]).reset_index(drop=True)
+
+
 def read_canonical_oos_a(path: Path | None = None) -> pd.DataFrame:
     """Load V1 Phase-8 Model A OOS predictions (development period only)."""
     paths = ProjectPaths.from_root(get_project_root())

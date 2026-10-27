@@ -25,12 +25,14 @@ from jevlab.v2.acceptance import (
 )
 from jevlab.v2.candidate import (
     V2_PHASES,
+    V2_UNIVERSE,
     research_cost_model,
     research_risk_config,
     run_model_a_backtest,
 )
 from jevlab.v2.dev_io import assert_frame_pre_sealed
 from jevlab.v2.null_engine import run_null_draw
+from jevlab.v2.payload import as_production_sealed_payload
 from jevlab.v2.statistics import FROZEN_N, evaluate_randomization
 from jevlab.v2.training import fit_once_model_a, score_model_a
 
@@ -54,6 +56,25 @@ class RehearsalResult:
         }
 
 
+CAUSAL_RUNNER_SESSIONS = 290
+CAUSAL_RUNNER_SCORE = 16
+
+
+def two_source_causal_fixture(
+    *,
+    n_sessions: int = CAUSAL_RUNNER_SESSIONS,
+    n_symbols: int = 2,
+    n_score: int = CAUSAL_RUNNER_SCORE,
+    seed: int = 3,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """History + production-style pseudo-sealed payload for the r4 runner."""
+    payload = synthetic_pre2024_payload(
+        n_sessions=n_sessions, n_symbols=n_symbols, seed=seed, n_score=n_score
+    )
+    history, sealed = split_preseal_and_score_payload(payload)
+    return payload, history, sealed
+
+
 def split_preseal_and_score_payload(
     payload: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -65,19 +86,43 @@ def split_preseal_and_score_payload(
     bars["date"] = pd.to_datetime(bars["date"]).dt.date
     labels = pd.DataFrame(payload.get("labels", features)).copy()
     labels["date"] = pd.to_datetime(labels["date"]).dt.date
+    vix = pd.DataFrame(payload.get("vix", []))
+    if not vix.empty:
+        date_col = "obs_date" if "obs_date" in vix.columns else "date"
+        vix = vix.copy()
+        vix[date_col] = pd.to_datetime(vix[date_col]).dt.date
     history = {
         "features": features.loc[features["date"] < t0].reset_index(drop=True),
         "labels": labels.loc[labels["date"] < t0].reset_index(drop=True),
         "bars": bars.loc[bars["date"] < t0].reset_index(drop=True),
+        "vix": (
+            vix.loc[vix[date_col] < t0].reset_index(drop=True)
+            if not vix.empty
+            else pd.DataFrame()
+        ),
         "pre_sealed": True,
     }
+    sealed_bars = bars.loc[bars["date"] >= t0].reset_index(drop=True)
+    sealed_vix = (
+        vix.loc[vix[date_col] >= t0].reset_index(drop=True) if not vix.empty else pd.DataFrame()
+    )
+    sealed_features = features.loc[features["date"] >= t0].reset_index(drop=True)
+    canary_date = sealed_bars["date"].max() if not sealed_bars.empty else None
     sealed = {
-        "features": features.loc[features["date"] >= t0].reset_index(drop=True),
+        "features": sealed_features,
         "labels": labels.loc[labels["date"] >= t0].reset_index(drop=True),
-        "bars": bars.loc[bars["date"] >= t0].reset_index(drop=True),
+        "bars": sealed_bars,
+        "vix": sealed_vix,
         "t0": t0,
         "pseudo": True,
         "label": REHEARSAL_LABEL,
+        "canary_date": canary_date,
+        "production": as_production_sealed_payload(
+            sealed_bars,
+            sealed_vix if not sealed_vix.empty else None,
+            t0=t0,
+            extras={"pseudo": True, "label": REHEARSAL_LABEL, "canary_date": canary_date},
+        ),
     }
     assert_frame_pre_sealed(history["features"])
     assert_frame_pre_sealed(history["bars"])
@@ -91,17 +136,27 @@ def synthetic_pre2024_payload(
     n_sessions: int = 80,
     n_symbols: int = 6,
     seed: int = 7,
+    n_score: int | None = None,
 ) -> dict[str, Any]:
     """Pre-2024 pseudo-sealed payload. Never includes 2024-2025 rows."""
     frame, bars = _synthetic_panel(n_sessions=n_sessions, n_symbols=n_symbols, seed=seed)
     assert_frame_pre_sealed(frame)
     assert_frame_pre_sealed(bars)
     sessions = sorted(frame["date"].unique().tolist())
-    t0 = sessions[len(sessions) // 2]
+    if n_score is not None:
+        if n_score <= 0 or n_score >= len(sessions):
+            raise ValueError("n_score must leave a non-empty historical window")
+        t0 = sessions[-n_score]
+    else:
+        t0 = sessions[len(sessions) // 2]
+    vix = pd.DataFrame(
+        [{"obs_date": d, "value": 18.0, "series_id": "VIXCLS"} for d in sessions]
+    )
     return {
         "features": frame,
         "labels": frame,
         "bars": bars,
+        "vix": vix,
         "t0": t0,
         "pseudo": True,
         "label": REHEARSAL_LABEL,
@@ -112,8 +167,10 @@ def _synthetic_panel(
     n_sessions: int = 80, n_symbols: int = 6, seed: int = 7
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     rng = np.random.default_rng(seed)
-    sessions = nyse_session_dates(date(2021, 6, 1), date(2022, 6, 30))[:n_sessions]
-    symbols = [f"E{i:02d}" for i in range(n_symbols)]
+    sessions = nyse_session_dates(date(2020, 1, 2), date(2022, 12, 30))[:n_sessions]
+    symbols = list(V2_UNIVERSE[: max(n_symbols, 1)])
+    if "SPY" not in symbols:
+        symbols[0] = "SPY"
     from jevlab.features.columns import MODEL_A_COLUMNS
 
     rows: list[dict[str, Any]] = []
@@ -121,7 +178,7 @@ def _synthetic_panel(
     px = {s: 100.0 for s in symbols}
     for i, d in enumerate(sessions):
         for s in symbols:
-            px[s] *= float(np.exp(rng.normal(0.0003, 0.01)))
+            px[s] *= float(np.exp(rng.normal(0.0008, 0.01)))
             feats = {c: float(rng.normal()) for c in MODEL_A_COLUMNS}
             y = 1 if feats["ret_1d"] + rng.normal() > 0 else 0
             rows.append(
@@ -137,12 +194,15 @@ def _synthetic_panel(
                     "y_cost": y,
                 }
             )
+            close = px[s] * (1.0 + float(rng.normal(0, 0.002)))
             bar_rows.append(
                 {
                     "symbol": s,
                     "date": d,
                     "adj_open": px[s],
-                    "adj_close": px[s] * (1.0 + float(rng.normal(0, 0.002))),
+                    "adj_close": close,
+                    "raw_close": close,
+                    "raw_volume": 1_000_000.0 + 1000.0 * i,
                 }
             )
     return pd.DataFrame(rows), pd.DataFrame(bar_rows)
@@ -282,13 +342,14 @@ def run_production_path_rehearsal(
     *,
     n: int = FROZEN_N,
     repeat: bool = True,
-    n_sessions: int = 36,
+    n_sessions: int = 290,
     n_symbols: int = 4,
+    n_score: int = 16,
     seed: int = 11,
     run_robustness: bool = False,
     sandbox_root: Path | None = None,
 ) -> RehearsalResult:
-    """Actual r3 production path: prebuild model, then score a pseudo-sealed source."""
+    """Actual r4 production path: prebuild model, then score a pseudo-sealed source."""
     from jevlab.utils.registry import init_registry
     from jevlab.v2.acceptance import phases_beating_null
     from jevlab.v2.evaluate import oracle_from_artifacts
@@ -300,9 +361,12 @@ def run_production_path_rehearsal(
     )
     from jevlab.v2.sealed_source import CountingPreSealedSource, CountingSealedSource
 
-    payload = synthetic_pre2024_payload(n_sessions=n_sessions, n_symbols=n_symbols, seed=seed)
+    payload = synthetic_pre2024_payload(
+        n_sessions=n_sessions, n_symbols=n_symbols, seed=seed, n_score=n_score
+    )
     t0 = payload["t0"]
     history, sealed = split_preseal_and_score_payload(payload)
+    sealed_raw = sealed["production"]
     tmp_root = sandbox_root or Path("reports") / "v2_preseal" / "production_path_rehearsal_sandbox"
     if tmp_root.exists():
         shutil.rmtree(tmp_root)
@@ -338,7 +402,7 @@ def run_production_path_rehearsal(
         "chosen_C": artifact.manifest["chosen_C"],
         "training_source_manifest_digest": artifact.manifest["training_source_manifest_digest"],
     }
-    sealed_src_pre = CountingSealedSource(sealed)
+    sealed_src_pre = CountingSealedSource(sealed_raw)
     preflight = run_v2_preflight(
         root=tmp_root,
         registry_path=reg,
@@ -365,7 +429,7 @@ def run_production_path_rehearsal(
             acceptance_dir=acc_dir,
             seal_dir=seal_dir,
             seal_token="unused",
-            sealed_source=CountingSealedSource(sealed),
+            sealed_source=CountingSealedSource(sealed_raw),
             training_source=CountingPreSealedSource(history),
             model_artifact=artifact,
             require_prebuilt_model=True,
@@ -439,11 +503,34 @@ def run_production_path_rehearsal(
         repeat_ok = body2["details"]["null_vector_digest"] == details["null_vector_digest"]
         repeat_ok = repeat_ok and body2["observed_mean_sharpe"] == observed
     hist_dates = history["features"]["date"]
-    sealed_dates = sealed["features"]["date"]
+    sealed_dates = sealed["bars"]["date"]
+    flow = details.get("data_flow", {})
+    flow_ok = (
+        int(flow.get("raw_rows", 0)) > 0
+        and int(flow.get("classified_rows", -1)) == int(flow.get("raw_rows", 0))
+        and int(flow.get("combined_history_sealed_rows", 0)) > 0
+        and int(flow.get("feature_builder_input_rows", 0)) > 0
+        and int(flow.get("valid_feature_rows", 0)) > 0
+        and int(flow.get("candidate_scoring_rows", 0)) > 0
+        and int(flow.get("n_predictions", 0)) > 0
+        and int(flow.get("n_completed_trades", 0)) > 0
+        and flow.get("causal_feature_builder_invoked") is True
+        and flow.get("historical_only_fallback") is False
+        and flow.get("unknown_frames", 1) == 0
+    )
+    first_score = flow.get("first_candidate_date")
+    last_score = flow.get("last_candidate_date")
+    dates_ok = True
+    if first_score and last_score:
+        dates_ok = str(min(sealed_dates)) <= str(first_score) and str(last_score) <= str(
+            max(sealed_dates)
+        )
     return RehearsalResult(
         ok=(
             repeat_ok
             and oracle_ok
+            and flow_ok
+            and dates_ok
             and details["fit_count"] == 1
             and details["dropped_draws"] == 0
             and details.get("fit_after_sealed_read") is False
@@ -451,7 +538,7 @@ def run_production_path_rehearsal(
         ),
         details={
             "label": REHEARSAL_LABEL,
-            "architecture": "r3_two_source_prebuilt_model",
+            "architecture": "r4_typed_payload_causal_features",
             "pre_seal_period": {
                 "min": str(min(hist_dates)),
                 "max": str(max(hist_dates)),
@@ -486,6 +573,14 @@ def run_production_path_rehearsal(
             "preprocessing_digest": artifact.manifest["preprocessing_digest"],
             "training_row_digest": artifact.manifest["training_row_digest"],
             "fit_after_sealed_read": details.get("fit_after_sealed_read"),
+            "data_flow": flow,
+            "causal_feature_builder_invoked": details.get("causal_feature_builder_invoked"),
+            "historical_only_fallback": details.get("historical_only_fallback"),
+            "production_payload_type": details.get("production_payload_type"),
+            "canary_date": str(sealed.get("canary_date")),
+            "canary_seen_in_combined": flow.get("canary_seen_in_combined"),
+            "canary_seen_in_features": flow.get("canary_seen_in_features"),
+            "canary_seen_in_scoring": flow.get("canary_seen_in_scoring"),
         },
     )
 

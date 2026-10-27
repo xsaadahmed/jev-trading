@@ -11,20 +11,29 @@ import json
 import os
 import subprocess
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Protocol
+
+import pandas as pd
 
 from jevlab.cv.sealed_guard import SEAL_TOKEN_ENV, SealedAccessError, SealedDataGuard
 from jevlab.experiments.acceptance import count_sealed_accesses
 from jevlab.jev.preconditions import PreconditionError, git_tag_exists, git_working_tree_clean
+from jevlab.targets.labels import build_labels
 from jevlab.utils.hashing import canonical_json, sha256_of
 from jevlab.v2.acceptance import V2GateReport
 from jevlab.v2.artifacts import atomic_write_json, invalidate_v2_sealed_pass, write_v2_sealed_pass
-from jevlab.v2.causal import construct_combined_study_frames
+from jevlab.v2.candidate import V2_UNIVERSE
+from jevlab.v2.causal import (
+    build_causal_score_features,
+    combine_history_and_sealed_bars,
+    combine_history_and_sealed_vix,
+    drop_unevaluable_end_window,
+)
+from jevlab.v2.dev_io import SEALED_MAX_DATE
 from jevlab.v2.evaluate import (
     InjectedCrash,
-    construct_study_frames,
     json_safe,
     payload_t0,
     score_sealed_study,
@@ -32,9 +41,11 @@ from jevlab.v2.evaluate import (
 from jevlab.v2.hashes import (
     FROZEN_COMMIT,
     FROZEN_IMPLEMENTATION_REVISION,
+    FROZEN_MODEL_LOGICAL_DIGEST,
     FROZEN_PRESEAL_IMPL_TAG,
     FROZEN_PRESEAL_IMPL_TAG_R1,
     FROZEN_PRESEAL_IMPL_TAG_R2,
+    FROZEN_PRESEAL_IMPL_TAG_R3,
     FROZEN_TAG_DESIGN,
     FROZEN_TAG_DESIGN_R1,
     FROZEN_TAG_PREREG,
@@ -47,10 +58,18 @@ from jevlab.v2.model_artifact import (
     assert_artifact_matches_freeze,
     load_sealed_test_model,
 )
+from jevlab.v2.payload import (
+    EmptySealedScoringError,
+    SealedDataFlow,
+    SealedPayloadError,
+    assert_sealed_scoring_nonempty,
+    classify_production_sealed_payload,
+    strip_audit_columns,
+)
 from jevlab.v2.rehearsal import REHEARSAL_LABEL
 from jevlab.v2.sealed_source import PreSealedTrainingSource, ProductionSealedSource
 from jevlab.v2.statistics import FROZEN_N
-from jevlab.v2.training import SEALED_T0, FittedModelA, TrainingLeakError
+from jevlab.v2.training import SEALED_T0, FittedModelA, TrainingLeakError, logical_model_digest
 
 SEAL_BROKEN_STAMP = "SEAL BROKEN"
 SEAL_STATE_FILENAME = "v2_seal_state.json"
@@ -60,13 +79,17 @@ VOID_AUTHORIZATION_PHRASES: frozenset[str] = frozenset(
         "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE",
         "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE WITH IMPLEMENTATION R2",
         "OPEN V2 R1 IMPLEMENTATION R2 SEALED HOLDOUT ONCE",
+        "OPEN V2 R1 IMPLEMENTATION R3 SEALED HOLDOUT ONCE",
     }
 )
-REQUIRED_AUTHORIZATION_PHRASE = "OPEN V2 R1 IMPLEMENTATION R3 SEALED HOLDOUT ONCE"
+REQUIRED_AUTHORIZATION_PHRASE = "OPEN V2 R1 IMPLEMENTATION R4 SEALED HOLDOUT ONCE"
 ATOMIC_STEPS: tuple[str, ...] = (
     "validate_preconditions",
     "append_sealed_access_record",
     "read_sealed_or_fixture",
+    "classify_sealed_payload",
+    "merge_historical_context",
+    "causal_feature_build",
     "construct_features_labels",
     "load_prebuilt_model",
     "score_entire_period",
@@ -95,33 +118,42 @@ def _maybe_crash(fail_after: str | None, step: str) -> None:
         raise InjectedCrash(f"injected crash after {step}")
 
 
-def assert_fresh_r3_authorization(
+def assert_fresh_r4_authorization(
     authorization: str,
     *,
     implementation_tag: str = FROZEN_PRESEAL_IMPL_TAG,
 ) -> None:
-    """Reject closed r1/r2 phrases; require the exact r3 phrase for r3 only."""
+    """Reject closed r1/r2/r3 phrases; require the exact r4 phrase for r4 only."""
     phrase = (authorization or "").strip()
     if phrase in VOID_AUTHORIZATION_PHRASES:
         raise PreconditionError(
-            "prior human authorization is VOID/CLOSED; r1 and r2 never consumed "
+            "prior human authorization is VOID/CLOSED; r1, r2, and r3 never consumed "
             "the seal and cannot be reused"
         )
     if phrase != REQUIRED_AUTHORIZATION_PHRASE:
         raise PreconditionError(
             "fresh explicit human authorization is required after "
-            f"{FROZEN_PRESEAL_IMPL_TAG}; prior r1/r2 authorizations are void"
+            f"{FROZEN_PRESEAL_IMPL_TAG}; prior r1/r2/r3 authorizations are void"
         )
     if implementation_tag != FROZEN_PRESEAL_IMPL_TAG:
         raise PreconditionError(
-            "r3 authorization phrase cannot authorize any implementation other "
+            "r4 authorization phrase cannot authorize any implementation other "
             f"than {FROZEN_PRESEAL_IMPL_TAG}"
         )
 
 
+def assert_fresh_r3_authorization(
+    authorization: str,
+    *,
+    implementation_tag: str = FROZEN_PRESEAL_IMPL_TAG,
+) -> None:
+    """r3 authorization is VOID/CLOSED."""
+    assert_fresh_r4_authorization(authorization, implementation_tag=implementation_tag)
+
+
 def assert_fresh_r2_authorization(authorization: str) -> None:
     """r2 authorization is VOID/CLOSED."""
-    assert_fresh_r3_authorization(authorization)
+    assert_fresh_r4_authorization(authorization)
 
 
 @dataclass
@@ -236,37 +268,46 @@ def assert_v2_final_test_preconditions(
         if not is_ancestor(prereg_r1, cwd=root):
             raise PreconditionError("HEAD is not a descendant of the revision-1 design freeze")
         checks["descendant_r1"] = "yes"
-        if FROZEN_PRESEAL_IMPL_TAG in {FROZEN_PRESEAL_IMPL_TAG_R1, FROZEN_PRESEAL_IMPL_TAG_R2}:
+        if FROZEN_PRESEAL_IMPL_TAG in {
+            FROZEN_PRESEAL_IMPL_TAG_R1,
+            FROZEN_PRESEAL_IMPL_TAG_R2,
+            FROZEN_PRESEAL_IMPL_TAG_R3,
+        }:
             raise PreconditionError(
-                "v2-preseal-implementation-r1/r2 are audit artifacts and are not "
-                "execution-capable after implementation r3"
+                "v2-preseal-implementation-r1/r2/r3 are audit artifacts and are not "
+                "execution-capable after implementation r4"
             )
         if require_preseal_tag:
             if not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG_R1, cwd=root):
                 raise PreconditionError(f"missing audit tag {FROZEN_PRESEAL_IMPL_TAG_R1}")
             if not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG_R2, cwd=root):
                 raise PreconditionError(f"missing audit tag {FROZEN_PRESEAL_IMPL_TAG_R2}")
+            if not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG_R3, cwd=root):
+                raise PreconditionError(f"missing audit tag {FROZEN_PRESEAL_IMPL_TAG_R3}")
             if not git_tag_exists(FROZEN_PRESEAL_IMPL_TAG, cwd=root):
                 raise PreconditionError(
                     f"missing {FROZEN_PRESEAL_IMPL_TAG} (required for the real sealed run); "
-                    f"{FROZEN_PRESEAL_IMPL_TAG_R1} and {FROZEN_PRESEAL_IMPL_TAG_R2} "
-                    "remain immutable audit artifacts"
+                    f"{FROZEN_PRESEAL_IMPL_TAG_R1}, {FROZEN_PRESEAL_IMPL_TAG_R2}, and "
+                    f"{FROZEN_PRESEAL_IMPL_TAG_R3} remain immutable audit artifacts"
                 )
             r1_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG_R1, cwd=root)
             r2_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG_R2, cwd=root)
-            r3_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG, cwd=root)
-            if not r3_impl:
-                raise PreconditionError("r3 implementation tag could not be peeled")
-            if r3_impl in {r1_impl, r2_impl}:
-                raise PreconditionError("r3 tag must not move r1 or r2")
+            r3_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG_R3, cwd=root)
+            r4_impl = peel_tag(FROZEN_PRESEAL_IMPL_TAG, cwd=root)
+            if not r4_impl:
+                raise PreconditionError("r4 implementation tag could not be peeled")
+            if r4_impl in {r1_impl, r2_impl, r3_impl}:
+                raise PreconditionError("r4 tag must not move r1, r2, or r3")
             checks["preseal_tag_r1_audit"] = r1_impl
             checks["preseal_tag_r2_audit"] = r2_impl
-            checks["preseal_tag"] = r3_impl
+            checks["preseal_tag_r3_audit"] = r3_impl
+            checks["preseal_tag"] = r4_impl
             checks["implementation_revision"] = str(FROZEN_IMPLEMENTATION_REVISION)
         else:
             checks["preseal_tag"] = "skipped"
         checks["preseal_tag_r1_not_execution"] = FROZEN_PRESEAL_IMPL_TAG_R1
         checks["preseal_tag_r2_not_execution"] = FROZEN_PRESEAL_IMPL_TAG_R2
+        checks["preseal_tag_r3_not_execution"] = FROZEN_PRESEAL_IMPL_TAG_R3
     if require_hashes:
         try:
             assert_frozen_research_hashes(root=root)
@@ -289,6 +330,8 @@ def assert_v2_final_test_preconditions(
     if v2_result_exists(root, acceptance_dir=acceptance_dir, seal_dir=seal_dir):
         raise PreconditionError("prior V2 sealed result or acceptance artifact exists")
     checks["no_prior_v2_result"] = "ok"
+    token_present = bool(os.environ.get(SEAL_TOKEN_ENV, "").strip())
+    checks["seal_token_present"] = "yes" if token_present else "no"
     if require_seal_token:
         expected = os.environ.get(SEAL_TOKEN_ENV, "").strip()
         if not expected or not seal_token or seal_token.strip() != expected:
@@ -308,6 +351,7 @@ class V2FinalTestResult:
     step_log: list[str]
     acceptance_path: Path | None = None
     result_path: Path | None = None
+    data_flow: dict[str, Any] = field(default_factory=dict)
 
 
 def run_v2_preflight(
@@ -413,7 +457,7 @@ def run_v2_final_test(
     log.record("validate_preconditions")
     _maybe_crash(fail_after, "validate_preconditions")
     if require_authorization:
-        assert_fresh_r3_authorization(authorization, implementation_tag=implementation_tag)
+        assert_fresh_r4_authorization(authorization, implementation_tag=implementation_tag)
     state = read_seal_state(seal_dir)
     seal_broken = bool(state.get("seal_broken"))
     if state.get("seal_opened") and not allow_second_look:
@@ -514,22 +558,124 @@ def run_v2_final_test(
         access_count = 1 if not seal_broken else access_count
 
     study_t0 = t0 if t0 is not None else payload_t0(payload, default=SEALED_T0)
-    if history_payload is not None and not payload.get("fixture"):
-        frames = construct_combined_study_frames(
-            history=history_payload,
-            sealed=payload,
-            allow_sealed_dates=allow_sealed_dates,
+    flow = SealedDataFlow()
+    if payload.get("fixture") and "frames" not in payload and "bars" not in payload:
+        raise ValueError(
+            "payload is a fixture stub; production computation requires "
+            "features, labels/targets, and bars"
         )
-    else:
-        frames = construct_study_frames(payload, allow_sealed_dates=allow_sealed_dates)
+
+    log.record("classify_sealed_payload")
+    classified = classify_production_sealed_payload(
+        payload,
+        allowed_symbols=list(V2_UNIVERSE),
+        min_date=None if study_t0 == SEALED_T0 else study_t0,
+        max_date=SEALED_MAX_DATE if study_t0 == SEALED_T0 else None,
+        require_real_window=study_t0 == SEALED_T0,
+    )
+    flow.raw_rows = classified.n_bar_rows + classified.n_vix_rows
+    flow.classified_rows = classified.n_bar_rows + classified.n_vix_rows
+    flow.unknown_frames = 0
+    if classified.n_bar_rows == 0:
+        raise EmptySealedScoringError(
+            "classified sealed payload has zero market bars; refusing historical-only fallback"
+        )
+    _maybe_crash(fail_after, "classify_sealed_payload")
+
+    log.record("merge_historical_context")
+    if history_payload is None:
+        raise EmptySealedScoringError(
+            "r4 runner requires pre-sealed historical context plus sealed observations"
+        )
+    history_bars = pd.DataFrame(history_payload.get("bars", []))
+    history_vix = pd.DataFrame(history_payload.get("vix", []))
+    if history_bars.empty:
+        raise EmptySealedScoringError("pre-sealed historical-context bars are empty")
+    combined_bars = combine_history_and_sealed_bars(history_bars, classified.bars)
+    combined_vix = combine_history_and_sealed_vix(history_vix, classified.vix)
+    n_sealed_origin = int((combined_bars["row_origin"] == "sealed_evaluation").sum())
+    flow.combined_history_sealed_rows = n_sealed_origin
+    if n_sealed_origin == 0:
+        raise EmptySealedScoringError(
+            "historical/sealed merge contributed zero sealed rows; refusing fallback"
+        )
+    canary = classified.extras.get("canary_date")
+    if canary is not None:
+        canary_d = canary if isinstance(canary, date) else date.fromisoformat(str(canary))
+        flow.canary_date = canary_d
+        flow.canary_seen_in_combined = bool(
+            (pd.to_datetime(combined_bars["date"]).dt.date == canary_d).any()
+        )
+    _maybe_crash(fail_after, "merge_historical_context")
+
+    log.record("causal_feature_build")
+    score_sessions = sorted(
+        {d for d in pd.to_datetime(classified.bars["date"]).dt.date.tolist() if d >= study_t0}
+    )
+    if study_t0 == SEALED_T0:
+        score_sessions = [d for d in score_sessions if d <= SEALED_MAX_DATE]
+    if not score_sessions:
+        raise EmptySealedScoringError(
+            "no sealed decision dates reached causal feature construction"
+        )
+    present = set(classified.bars["symbol"].astype(str).unique().tolist()) | set(
+        history_bars["symbol"].astype(str).unique().tolist()
+    )
+    symbols = [s for s in sorted(present) if s in set(V2_UNIVERSE)]
+    if not symbols:
+        raise SealedPayloadError("combined bars contain no allowed universe symbols")
+    features = build_causal_score_features(
+        history_bars=history_bars,
+        sealed_bars=classified.bars,
+        vix=combined_vix,
+        history_vix=history_vix,
+        sealed_vix=classified.vix,
+        symbols=symbols,
+        score_sessions=score_sessions,
+    )
+    flow.causal_feature_builder_invoked = True
+    flow.feature_builder_input_rows = n_sealed_origin
+    flow.valid_feature_rows = len(features)
+    assert_sealed_scoring_nonempty(features, t0=study_t0)
+    if flow.canary_date is not None:
+        flow.canary_seen_in_features = bool(
+            (pd.to_datetime(features["date"]).dt.date == flow.canary_date).any()
+        )
+    _maybe_crash(fail_after, "causal_feature_build")
+
     log.record("construct_features_labels")
+    bars_for_labels = strip_audit_columns(combined_bars)
+    labels = build_labels(
+        bars_for_labels,
+        eligible=features.loc[:, ["symbol", "date", "eligible"]],
+        universe_symbols=symbols,
+    )
+    if labels.empty:
+        raise EmptySealedScoringError("label construction produced zero rows from combined bars")
+    labels = drop_unevaluable_end_window(labels, bars_for_labels)
+    labels = labels.copy()
+    labels["target_origin"] = "sealed_evaluation"
+    model_features = strip_audit_columns(features)
+    model_labels = strip_audit_columns(labels)
+    frames = {
+        "features": model_features,
+        "labels": model_labels,
+        "bars": bars_for_labels,
+        "provenance_features": features,
+        "combined_bars": combined_bars,
+    }
     _maybe_crash(fail_after, "construct_features_labels")
 
     log.record("load_prebuilt_model")
     _maybe_crash(fail_after, "load_prebuilt_model")
     if fitted_model is None:
         raise TrainingLeakError(
-            "r3 sealed runner requires a prebuilt Model A; refused to fit after sealed read"
+            "r4 sealed runner requires a prebuilt Model A; refused to fit after sealed read"
+        )
+    live_digest = logical_model_digest(fitted_model)
+    if study_t0 == SEALED_T0 and live_digest != FROZEN_MODEL_LOGICAL_DIGEST:
+        raise TrainingLeakError(
+            "prebuilt Model A logical digest drifted from the frozen sealed-test model"
         )
     training_meta = {}
     if loaded_artifact is not None:
@@ -562,6 +708,27 @@ def run_v2_final_test(
         training_meta=training_meta,
         skip_construct_step=True,
     )
+    pred_dates = pd.to_datetime(evaluation.predictions["date"]).dt.date
+    flow.candidate_scoring_rows = int((pred_dates >= study_t0).sum())
+    if "score" in evaluation.predictions.columns:
+        flow.n_predictions = int(evaluation.predictions["score"].notna().sum())
+    else:
+        flow.n_predictions = len(evaluation.predictions)
+    if flow.candidate_scoring_rows == 0:
+        raise EmptySealedScoringError("zero sealed decision rows reached candidate scoring")
+    scored = pred_dates.loc[pred_dates >= study_t0]
+    flow.first_candidate_date = min(scored) if len(scored) else None
+    flow.last_candidate_date = max(scored) if len(scored) else None
+    if flow.canary_date is not None:
+        flow.canary_seen_in_scoring = bool((pred_dates == flow.canary_date).any())
+    flow.n_completed_trades = int(
+        sum(int(v) for v in dict(evaluation.details.get("phase_round_trip_rows", {})).values())
+    )
+    flow.historical_only_fallback = False
+    evaluation.details["data_flow"] = flow.to_dict()
+    evaluation.details["causal_feature_builder_invoked"] = True
+    evaluation.details["historical_only_fallback"] = False
+    evaluation.details["production_payload_type"] = "ProductionSealedPayload"
     report = evaluation.gate_report
     result_path = seal_dir / "SEALED_RESULT.json"
     seal_dir.mkdir(parents=True, exist_ok=True)
@@ -614,6 +781,7 @@ def run_v2_final_test(
         step_log=list(log.steps),
         acceptance_path=acceptance_path,
         result_path=result_path,
+        data_flow=flow.to_dict(),
     )
 
 

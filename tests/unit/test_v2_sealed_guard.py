@@ -11,13 +11,13 @@ from jevlab.cv.sealed_guard import SEAL_TOKEN_ENV, SealedAccessError
 from jevlab.jev.preconditions import PreconditionError
 from jevlab.utils.registry import init_registry
 from jevlab.v2.model_artifact import fit_presealed_model, write_sealed_test_model
-from jevlab.v2.rehearsal import split_preseal_and_score_payload, synthetic_pre2024_payload
+from jevlab.v2.rehearsal import two_source_causal_fixture
 from jevlab.v2.sealed_run import (
     ATOMIC_STEPS,
     SEAL_BROKEN_STAMP,
     VOID_AUTHORIZATION_PHRASES,
     ForbiddenRealSealedSource,
-    assert_fresh_r3_authorization,
+    assert_fresh_r4_authorization,
     run_v2_final_test,
 )
 from jevlab.v2.sealed_source import CountingPreSealedSource, CountingSealedSource
@@ -176,15 +176,14 @@ def test_forbidden_real_source_never_loads_sealed() -> None:
 
 def test_void_authorization_is_rejected() -> None:
     with pytest.raises(PreconditionError, match="VOID"):
-        assert_fresh_r3_authorization(next(iter(VOID_AUTHORIZATION_PHRASES)))
+        assert_fresh_r4_authorization(next(iter(VOID_AUTHORIZATION_PHRASES)))
     with pytest.raises(PreconditionError, match="fresh"):
-        assert_fresh_r3_authorization("")
+        assert_fresh_r4_authorization("")
 
 
 def test_real_compute_records_atomic_steps(tmp_path: Path) -> None:
     root, acc, seal, reg = _root(tmp_path)
-    payload = synthetic_pre2024_payload(n_sessions=40, n_symbols=4, seed=5)
-    history, sealed = split_preseal_and_score_payload(payload)
+    payload, history, sealed = two_source_causal_fixture(seed=5)
     fitted, meta = fit_presealed_model(
         features=history["features"],
         labels=history["labels"],
@@ -195,7 +194,7 @@ def test_real_compute_records_atomic_steps(tmp_path: Path) -> None:
     art = write_sealed_test_model(
         fitted=fitted, meta=meta, out_dir=tmp_path / "model", git_commit="t"
     )
-    src = CountingSealedSource(sealed)
+    src = CountingSealedSource(sealed["production"])
     result = run_v2_final_test(
         root=root,
         registry_path=reg,
@@ -225,6 +224,12 @@ def test_real_compute_records_atomic_steps(tmp_path: Path) -> None:
         "read_sealed_or_fixture"
     )
     assert result.step_log.index("read_sealed_or_fixture") < result.step_log.index(
+        "classify_sealed_payload"
+    )
+    assert result.step_log.index("classify_sealed_payload") < result.step_log.index(
+        "causal_feature_build"
+    )
+    assert result.step_log.index("causal_feature_build") < result.step_log.index(
         "construct_features_labels"
     )
     assert result.step_log.index("candidate_backtest") < result.step_log.index("run_random_nulls")

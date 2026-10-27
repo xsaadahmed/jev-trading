@@ -23,12 +23,12 @@ from jevlab.v2.evaluate import score_sealed_study
 from jevlab.v2.hashes import (
     FROZEN_ACCEPTANCE_GATE_HASH,
     FROZEN_CANDIDATE_HASH,
-    FROZEN_PRESEAL_IMPL_TAG,
-    FROZEN_PRESEAL_IMPL_TAG_R1,
-    FROZEN_PRESEAL_IMPL_TAG_R2,
+    FROZEN_IMPLEMENTATION_REVISION,
+    FROZEN_PRESEAL_IMPL_TAG_R3,
     FROZEN_RANDOM_NULL_HASH,
     FROZEN_RESEARCH_CONFIG_HASH,
     FROZEN_SEED_MAPPING_DIGEST,
+    MODEL_FREEZE_IMPLEMENTATION_REVISION,
     assert_frozen_research_hashes,
 )
 from jevlab.v2.model_artifact import (
@@ -38,9 +38,8 @@ from jevlab.v2.model_artifact import (
 )
 from jevlab.v2.rehearsal import split_preseal_and_score_payload, synthetic_pre2024_payload
 from jevlab.v2.sealed_run import (
-    REQUIRED_AUTHORIZATION_PHRASE,
     VOID_AUTHORIZATION_PHRASES,
-    assert_fresh_r3_authorization,
+    assert_fresh_r4_authorization,
     run_v2_preflight,
 )
 from jevlab.v2.sealed_source import CountingPreSealedSource, ProductionSealedSource
@@ -58,38 +57,11 @@ def test_research_hashes_unchanged() -> None:
     )
 
 
-def test_r3_authorization_exact_match_and_rejections() -> None:
-    assert_fresh_r3_authorization(REQUIRED_AUTHORIZATION_PHRASE)
-    assert REQUIRED_AUTHORIZATION_PHRASE == "OPEN V2 R1 IMPLEMENTATION R3 SEALED HOLDOUT ONCE"
+def test_r3_authorization_is_void() -> None:
+    assert "OPEN V2 R1 IMPLEMENTATION R3 SEALED HOLDOUT ONCE" in VOID_AUTHORIZATION_PHRASES
     with pytest.raises(PreconditionError, match="VOID"):
-        assert_fresh_r3_authorization("OPEN V2 REVISION 1 SEALED HOLDOUT ONCE")
-    with pytest.raises(PreconditionError, match="VOID"):
-        assert_fresh_r3_authorization(
-            "OPEN V2 REVISION 1 SEALED HOLDOUT ONCE WITH IMPLEMENTATION R2"
-        )
-    with pytest.raises(PreconditionError, match="VOID"):
-        assert_fresh_r3_authorization("OPEN V2 R1 IMPLEMENTATION R2 SEALED HOLDOUT ONCE")
-    with pytest.raises(PreconditionError, match="fresh"):
-        assert_fresh_r3_authorization("OPEN V2 R1 IMPLEMENTATION R3 SEALED HOLDOUT ONCE!")
-    with pytest.raises(PreconditionError, match="fresh"):
-        assert_fresh_r3_authorization("open v2 r1 implementation r3 sealed holdout once")
-    with pytest.raises(PreconditionError, match="other than"):
-        assert_fresh_r3_authorization(
-            REQUIRED_AUTHORIZATION_PHRASE,
-            implementation_tag=FROZEN_PRESEAL_IMPL_TAG_R2,
-        )
-    with pytest.raises(PreconditionError, match="other than"):
-        assert_fresh_r3_authorization(
-            REQUIRED_AUTHORIZATION_PHRASE,
-            implementation_tag=FROZEN_PRESEAL_IMPL_TAG_R1,
-        )
-    assert_fresh_r3_authorization(
-        REQUIRED_AUTHORIZATION_PHRASE,
-        implementation_tag=FROZEN_PRESEAL_IMPL_TAG,
-    )
-    for phrase in VOID_AUTHORIZATION_PHRASES:
-        with pytest.raises(PreconditionError, match="VOID"):
-            assert_fresh_r3_authorization(phrase)
+        assert_fresh_r4_authorization("OPEN V2 R1 IMPLEMENTATION R3 SEALED HOLDOUT ONCE")
+    assert FROZEN_PRESEAL_IMPL_TAG_R3 == "v2-preseal-implementation-r3"
 
 
 def test_score_sealed_study_contains_no_fit_call() -> None:
@@ -160,7 +132,10 @@ def test_sealed_test_model_deterministic_rebuild(tmp_path: Path) -> None:
     loaded = load_sealed_test_model(art.path)
     assert loaded.manifest["artifact_kind"] == "v2_sealed_test_model"
     assert loaded.manifest["protocol_revision"] == 1
-    assert loaded.manifest["implementation_revision"] == 3
+    assert loaded.manifest["implementation_revision"] in {
+        MODEL_FREEZE_IMPLEMENTATION_REVISION,
+        FROZEN_IMPLEMENTATION_REVISION,
+    }
     assert loaded.manifest["contains_2024_2025"] is False
     assert loaded.fitted.C == a1.C
     assert logical_model_digest(loaded.fitted) == m1["model_logical_digest"]
