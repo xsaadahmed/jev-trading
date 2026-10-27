@@ -36,6 +36,7 @@ No `V2_SEALED_PASS`. No confirmatory `SEALED_RESULT`. Seal broken = NO. Second l
 ## Implementation r3
 
 - Tag: `v2-preseal-implementation-r3`
+- Implementation commit: `8def0ad43ad1473276f16cff8bde77e163b3eafe`
 - Branch: `v2-baseline-validation`
 - Protocol revision: **1**
 - Implementation revision: **3**
@@ -69,7 +70,7 @@ Built from allowed pre-2024 development stores only. Contains **no** 2024-2025 i
 | Field | Value |
 | ----- | ----- |
 | artifact kind | `v2_sealed_test_model` |
-| integrity digest | `74e188001985d879135c0e99b5417235d5659a9b104d8b2be57b4286b896105c` |
+| integrity digest | `98c77b0e270be8ef11d3c8d29bef9b8d645e86a2e1d86a5bf43a4fa59609ca6d` |
 | model logical digest | `74e301458559a511229b92235628db17cca80e4ebdff016a792784cab14ccc6c` |
 | preprocessing digest | `2ea88b000718f053e94fcd07bdc742220b90b3263f039d9756999901716598e9` |
 | training-row digest | `d397b9f3ac093ad30e04de982208072db69b449fd62766a4fd28929fac30881d` |

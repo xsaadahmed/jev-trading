@@ -17,11 +17,11 @@
   "chosen_C": 0.01,
   "preprocessing_digest": "2ea88b000718f053e94fcd07bdc742220b90b3263f039d9756999901716598e9",
   "fitted_model_digest": "74e301458559a511229b92235628db17cca80e4ebdff016a792784cab14ccc6c",
-  "source_code_commit": "8197cd906752c40f18129fa372e56b6013fc1079",
+  "source_code_commit": "8def0ad43ad1473276f16cff8bde77e163b3eafe",
   "python_package_environment_digest": "7ec8c867c1cdf2908508e59a8c5bbf9199c0b857927bfc9b49f4ecf5b7f28517",
-  "created_at": "2026-10-27T03:47:59.891828+00:00",
+  "created_at": "2026-10-27T04:21:01.159032+00:00",
   "fit_count": 1,
   "not_an_acceptance_artifact": true,
   "contains_2024_2025": false,
-  "integrity_digest": "74e188001985d879135c0e99b5417235d5659a9b104d8b2be57b4286b896105c"
+  "integrity_digest": "98c77b0e270be8ef11d3c8d29bef9b8d645e86a2e1d86a5bf43a4fa59609ca6d"
 }

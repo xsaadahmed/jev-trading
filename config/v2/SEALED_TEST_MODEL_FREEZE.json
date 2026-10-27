@@ -12,7 +12,7 @@
     "schema_sha256": "21a3ce14920b5b30a3ed798591f24761c344d518a7e6eef5d5c30c4d00f8c423"
   },
   "training_source_manifest_digest": "79ddc0caf350bc816a509433dd43baf5c70339a7000433026eb275dadb07266f",
-  "integrity_digest": "74e188001985d879135c0e99b5417235d5659a9b104d8b2be57b4286b896105c",
+  "integrity_digest": "98c77b0e270be8ef11d3c8d29bef9b8d645e86a2e1d86a5bf43a4fa59609ca6d",
   "contains_2024_2025": false,
   "note": "Logical digests of the pre-sealed Model A. Binary joblib bytes are not the freeze key."
 }
